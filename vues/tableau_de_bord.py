@@ -90,8 +90,11 @@ if not act.empty:
         li = L.indice_liquidite(m)
         if not li.empty:
             v = li.iloc[-1]
-            ui.kpis([{"lab": "Indice de liquidité MASI 20", "val": f"{nombre(v['indice_lisse'], 0)} / 100",
-                      "sub": f"calculé sur {int(v['historique'])} séance(s) de bulletins", "gold": True},
+            ok, n = L.note_disponible(m)
+            sc = L.score_valeurs(m, dcote, dcote)
+            ui.kpis([{"lab": "Note de liquidité MASI 20", "val": f"{nombre(v['indice_lisse'], 0)} / 100" if ok else "En constitution",
+                      "sub": "vs séances précédentes" if ok else f"{n} / {L.SEANCES_MIN_NOTE} séances importées", "gold": True},
+                     {"lab": "Valeur la plus liquide", "val": sc.iloc[0]["nom"].title(), "sub": f"score {sc.iloc[0]['score']:.0f} / 100"},
                      {"lab": "Volume des 20 valeurs", "val": mad(m[m['date'] == dcote]['volume'].sum()), "sub": "marché central"},
                      {"lab": "Hausses / baisses", "val": f"{int((p['rendement'] > 0).sum())} / {int((p['rendement'] < 0).sum())}",
                       "sub": "sur 20 valeurs"}])
