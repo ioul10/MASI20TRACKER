@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="56" viewBox="0 0 260 56">
+  <rect x="2" y="8" width="40" height="40" rx="9" fill="#C9A227"/>
+  <polyline points="9,38 17,29 24,33 35,18" fill="none" stroke="#0B2447" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="52" y="35" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" fill="#FFFFFF">MASI<tspan fill="#C9A227">20</tspan>TRACKER</text>
+</svg>
