@@ -7,6 +7,7 @@ import html
 import pandas as pd
 
 from . import charts as G
+from . import brand
 from . import config as C
 from .fmt import date_courte, date_longue, mad, nombre, pct
 
@@ -45,6 +46,8 @@ body {{ font-family: Inter, 'Segoe UI', Arial, sans-serif; color: {C.INK}; margi
 .wrap {{ max-width: 1180px; margin: 0 auto; padding: 18px; }}
 .banner {{ background: linear-gradient(100deg, {C.NAVY}, {C.NAVY_2}); color: #fff; border-bottom: 4px solid {C.GOLD};
   border-radius: 10px; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; }}
+.banner {{ gap: 18px; }}
+.banner .logo {{ background: #fff; border-radius: 8px; padding: 6px 10px; }} .banner .logo img {{ height: 38px; display: block; }}
 .banner h1 {{ margin: 0; font-size: 20px; letter-spacing: .4px; }} .banner h1 span {{ color: {C.GOLD}; }}
 .banner p {{ margin: 3px 0 0; color: #C9D3E6; }}
 .big {{ text-align: right; }} .big b {{ font-size: 24px; display: block; }}
@@ -85,7 +88,9 @@ def html_bilan(o: dict, avis: str, auteur: str = "") -> str:
         k.append((r["contrat"], f"{nombre(r['cloture'])} pts", f"{pct(r['var_semaine'])} · base {pct(r['base_pct'], 1)}", r["var_semaine"]))
     kp = "".join(f"<div class='kpi'><div class='l'>{a}</div><div class='v'>{b}</div><div class='s {_cls(v)}'>{c}</div></div>"
                  for a, b, c, v in k[:5])
-    p = [f"""<div class='banner'><div><h1>MASI<span>20</span>TRACKER · Bilan hebdomadaire</h1>
+    logo = brand.logo_data_uri()
+    logo_html = f"<div class='logo'><img src='{logo}' alt='{C.NOM_ENTREPRISE}'></div>" if logo else ""
+    p = [f"""<div class='banner'>{logo_html}<div style='flex:1'><h1>MASI<span>20</span>TRACKER · Bilan hebdomadaire</h1>
 <p>Semaine du {date_courte(deb)} au {date_courte(fin)} · {len(o['seances'])} séances · Indice, composants et marché à terme</p></div>
 <div class='big'><b>{nombre(o['masi20'])} pts</b><span class='{_cls(o['masi20_var'])}'>{pct(o['masi20_var'])}</span>
 <span class='note'> depuis le {date_courte(o['masi20_ref_date'])}</span></div></div>
@@ -166,7 +171,7 @@ def html_bilan(o: dict, avis: str, auteur: str = "") -> str:
 
     # Avis
     p.append(f"<h2>Avis DRF</h2><div class='avis'>{html.escape(avis).replace(chr(10), '<br>')}</div>")
-    p.append(f"<div class='foot'>Généré par MASI20TRACKER{(' · ' + html.escape(auteur)) if auteur else ''} · "
+    p.append(f"<div class='foot'>{C.NOM_ENTREPRISE} · Généré par MASI20TRACKER{(' · ' + html.escape(auteur)) if auteur else ''} · "
              f"{date_longue(pd.Timestamp.today())}. Source : bulletins officiels de la Bourse de Casablanca. "
              "Poids approchés (nombre de titres × cours × facteur de flottant). Outil indépendant, non affilié à la "
              "Bourse de Casablanca. Ce document ne constitue pas un conseil en investissement.</div>")
