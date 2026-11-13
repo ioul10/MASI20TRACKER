@@ -21,6 +21,7 @@ from docx.oxml import OxmlElement  # noqa: E402
 from docx.oxml.ns import qn  # noqa: E402
 from docx.shared import Cm, Pt, RGBColor  # noqa: E402
 
+from . import brand  # noqa: E402
 from . import config as C  # noqa: E402
 from . import futures as F  # noqa: E402
 from .fmt import date_courte, date_longue, jour, mad, nombre, pct  # noqa: E402
@@ -259,10 +260,15 @@ def docx_bilan(o: dict, avis: str, auteur: str = "") -> bytes:
     fin = o["seances"][-1]
     # Pied de page
     pf = sec.footer.paragraphs[0]
-    _run(pf, f"MASI20TRACKER · Bilan hebdomadaire au {date_courte(fin)} · Source : bulletins de la Bourse de Casablanca",
+    _run(pf, f"{C.NOM_ENTREPRISE} – {C.SERVICE} · MASI20TRACKER · Bilan hebdomadaire au {date_courte(fin)} · "
+             "Source : bulletins de la Bourse de Casablanca · Usage interne",
          couleur=MUTED, taille=7.5)
 
-    # En-tête
+    # En-tête : logo de l'entreprise (si présent dans assets/)
+    lg = brand.logo_png_bytes()
+    if lg:
+        doc.add_picture(io.BytesIO(lg), height=Cm(1.4))
+        doc.paragraphs[-1].paragraph_format.space_after = Pt(4)
     p = doc.add_paragraph()
     _run(p, "MASI", gras=True, couleur=NAVY, taille=20)
     _run(p, "20", gras=True, couleur=GOLD, taille=20)
@@ -379,7 +385,7 @@ def docx_bilan(o: dict, avis: str, auteur: str = "") -> bytes:
     # Signature
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(12)
-    _run(p, f"Généré par MASI20TRACKER{(' · ' + auteur) if auteur else ''} · {date_longue(pd.Timestamp.today())}. "
+    _run(p, f"{C.NOM_ENTREPRISE} · Généré par MASI20TRACKER{(' · ' + auteur) if auteur else ''} · {date_longue(pd.Timestamp.today())}. "
             "Poids approchés (nombre de titres × cours × facteur de flottant). Outil indépendant, non affilié à la "
             "Bourse de Casablanca. Ce document ne constitue pas un conseil en investissement.", couleur=MUTED, taille=7.5)
 
