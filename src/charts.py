@@ -161,7 +161,7 @@ def carte_composants(df: pd.DataFrame, taille="poids", h=520) -> go.Figure:
         "var_pct": np.average(g["var_pct"].fillna(0), weights=g[taille]) if g[taille].sum() else 0}),
         include_groups=False)
     tot = float(sect["taille"].sum())
-    labels = ["Ensemble"] + list(sect.index) + list(d["nom"])
+    labels = ["MASI 20"] + list(sect.index) + list(d["nom"])
     ids = ["ROOT"] + ["S:" + s for s in sect.index] + list(d["isin"])
     parents = [""] + ["ROOT"] * len(sect) + ["S:" + s for s in d["secteur"]]
     values = [tot] + list(sect["taille"]) + list(d[taille])
