@@ -272,14 +272,35 @@ def liquidite(li: pd.DataFrame, m20: pd.DataFrame, h=460) -> go.Figure:
     return fig
 
 
+NIVEAUX = {"Liquide": C.UP, "Moyenne": "#E0A526", "Peu liquide": C.DOWN}
+
+
 def scores(sc: pd.DataFrame, h=None) -> go.Figure:
+    """Classement des 20 valeurs, de la plus liquide (en haut) à la moins liquide."""
     d = sc.sort_values("score")
-    cmap = {"Faible": "#EBA9A9", "Moyenne": "#E9C46A", "Bonne": "#7FBFA0", "Élevée": C.UP}
-    fig = go.Figure(go.Bar(y=d["nom"], x=d["score"], orientation="h",
-                           marker_color=[cmap.get(str(n), C.NEUTRE) for n in d["niveau"]],
-                           text=[f"{s:.0f}" for s in d["score"]], textposition="outside",
-                           hovertemplate="<b>%{y}</b><br>Score : %{x:.0f}<extra></extra>"))
-    fig = _layout(fig, h or 24 * len(d) + 60, legende=False, hovermode="closest")
-    fig.update_xaxes(range=[0, 108], title_text="Score de liquidité (0-100)", showgrid=True, gridcolor=C.GRID)
+    fig = go.Figure()
+    for niv, col in NIVEAUX.items():
+        x = d[d["niveau"] == niv]
+        fig.add_trace(go.Bar(y=x["nom"], x=x["score"], orientation="h", name=niv, marker_color=col,
+                             text=[f"{v:.0f}" for v in x["score"]], textposition="outside",
+                             hovertemplate="<b>%{y}</b><br>Score : %{x:.0f} / 100<extra></extra>"))
+    fig = _layout(fig, h or 26 * len(d) + 80, hovermode="closest")
+    fig.update_layout(barmode="overlay", yaxis=dict(categoryorder="array", categoryarray=list(d["nom"])))
+    fig.update_xaxes(range=[0, 108], title_text="Score (0 = difficile à échanger, 100 = facile)",
+                     showgrid=True, gridcolor=C.GRID)
     fig.update_yaxes(showgrid=False)
+    return fig
+
+
+def note_semaines(hist: pd.DataFrame, h=320) -> go.Figure:
+    """Note globale par semaine (barres, sans relier les semaines manquantes)."""
+    fig = go.Figure(go.Bar(x=hist["semaine"], y=hist["note"], marker_color=[
+        C.UP if v >= 65 else C.DOWN if v <= 35 else "#9AA7BD" for v in hist["note"]],
+        text=[f"{v:.0f}" for v in hist["note"]], textposition="outside",
+        hovertemplate="%{x}<br>Note : %{y:.0f} / 100<extra></extra>"))
+    fig.add_hline(y=50, line=dict(color=C.GOLD, dash="dash", width=1),
+                  annotation_text="50 = liquidité habituelle", annotation_position="top left")
+    fig = _layout(fig, h, legende=False, hovermode="closest")
+    fig.update_yaxes(range=[0, 105])
+    fig.update_xaxes(type="category")
     return fig
