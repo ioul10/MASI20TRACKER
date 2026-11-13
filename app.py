@@ -1,7 +1,9 @@
 """MASI20TRACKER : point d'entrée de l'application Streamlit."""
 import streamlit as st
 
-st.set_page_config(page_title="MASI20TRACKER", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+from src import brand
+
+st.set_page_config(page_title=f"MASI20TRACKER · {brand.NOM}", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 
 
 def acces_autorise() -> bool:
@@ -50,5 +52,7 @@ pages = {
         st.Page("vues/parametres.py", title="Composition & paramètres", icon=":material/tune:"),
     ],
 }
-st.logo("assets/logo.svg", size="large")
+# Logo de l'entreprise dans le menu (après le code d'accès : il n'apparaît pas sur l'écran de connexion)
+_logo = brand.logo_path()
+st.logo(str(_logo) if _logo else "assets/logo.svg", size="large")
 st.navigation(pages).run()
