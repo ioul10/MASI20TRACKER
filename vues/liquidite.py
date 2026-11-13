@@ -56,7 +56,7 @@ with c1:
     st.plotly_chart(G.scores(sc), width="stretch", config=G.CFG)
 with c2:
     tab = pd.DataFrame({
-        "Valeur": sc["nom"], "Niveau": sc["niveau"], "Score": sc["score"],
+        "Valeur": sc["nom"], "Niveau": sc["niveau"].astype(str), "Score": sc["score"],
         "Échangé par séance": sc["volume"],
         "Écart achat / vente": sc["spread"],
         "Variation pour 10 M MAD": sc["amihud"] * 10,
