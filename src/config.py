@@ -3,10 +3,20 @@
 APP_NAME = "MASI20TRACKER"
 SOUS_TITRE = "Suivi de l'indice MASI 20, de ses composants et du marché à terme"
 
-# --- Thème inspiré de la Bourse de Casablanca (bleu marine et or)
-NAVY = "#0B2447"
-NAVY_2 = "#19376D"
-GOLD = "#C9A227"
+# --- Couleurs : celles du logo de l'entreprise (src/brand.py), sinon bleu marine et or
+from . import brand as _brand  # noqa: E402
+
+NAVY, GOLD = _brand.couleurs()
+
+
+def _eclaircir(h: str, f: float = 0.25) -> str:
+    r, g, b = (int(h[i:i + 2], 16) for i in (1, 3, 5))
+    return "#{:02X}{:02X}{:02X}".format(*(int(c + (255 - c) * f) for c in (r, g, b)))
+
+
+NAVY_2 = _eclaircir(NAVY, 0.18)
+NOM_ENTREPRISE = _brand.NOM
+SERVICE = _brand.SERVICE
 BG = "#F4F6FA"
 CARD = "#FFFFFF"
 INK = "#14213D"
