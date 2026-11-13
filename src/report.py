@@ -103,7 +103,8 @@ def html_bilan(o: dict, avis: str, auteur: str = "") -> str:
     if o.get("composants_dispo"):
         gen += [["Hausses / baisses (20 valeurs)", f"{o['hausses']} / {o['baisses']}"],
                 ["Volume des 20 valeurs (central)", f"{mad(o['volume_masi20'])} · {pct(o['part_marche'], 0, False)} du marché"],
-                ["Indice de liquidité MASI 20", f"{nombre(o['liquidite_fin'], 0)} / 100"]]
+                ["Note de liquidité MASI 20", f"{nombre(o['liquidite_fin'], 0)} / 100" if o.get("liquidite_ok")
+                 else f"en constitution ({o['liquidite_historique']} / 20 séances)"]]
     p.append(_table(gen, ["Indicateur", "Valeur"], ["", "n"]))
 
     # Futures
@@ -138,7 +139,7 @@ def html_bilan(o: dict, avis: str, auteur: str = "") -> str:
                           (nombre(r["contribution_pb"], 1, True), r["contribution_pb"]), mad(r.get("volume")),
                           nombre(r.get("volume_sur_poids"), 1) + "×",
                           (nombre(r.get("tendance_volume"), 2) + "×") if pd.notna(r.get("tendance_volume")) else "–",
-                          nombre(r.get("score"), 0), r.get("qualite", "")] for _, r in b.iterrows()],
+                          r.get("niveau", "–"), r.get("qualite", "")] for _, r in b.iterrows()],
                         ["Valeur", "Poids", "Var. sem.", "Contrib. (pb)", "Volume", "Vol./poids", "Tend. vol.", "Liquidité", "Signal"],
                         ["", "n", "n", "n", "n", "n", "n", "n", ""]))
         s = o["secteurs"]
