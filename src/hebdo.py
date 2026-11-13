@@ -72,6 +72,7 @@ def bilan(db: dict, fin_semaine) -> dict:
         sc = L.score_valeurs(m, debut, fin)
         if not sc.empty:
             b = b.merge(sc[["isin", "score", "niveau", "spread", "amihud"]], on="isin", how="left")
+            out["liquidite_valeurs"] = sc
         out["composants"] = b
         out["secteurs"] = K.par_secteur(b)
         out["hausses"] = int((b["rendement"] > 0).sum())
@@ -100,6 +101,9 @@ def bilan(db: dict, fin_semaine) -> dict:
         lw = li[li["date"] <= fin]
         out["liquidite_fin"] = float(lw["indice_lisse"].iloc[-1]) if not lw.empty else np.nan
         out["liquidite_historique"] = int(lw["historique"].iloc[-1]) if not lw.empty else 0
+        out["liquidite_ok"], _ = L.note_disponible(m, fin)
+        if out["liquidite_ok"]:
+            out["liquidite_fin"] = float(lw[lw["date"] >= debut]["indice"].mean())
         out["a_surveiller"] = a_surveiller(b)
 
     # Futures
