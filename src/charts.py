@@ -9,7 +9,7 @@ from plotly.subplots import make_subplots
 
 from . import config as C
 from . import futures as F
-from .fmt import nombre
+from .fmt import jour, nombre
 
 FONT = "Inter, Segoe UI, Arial, sans-serif"
 CFG = {"displayModeBar": False, "locale": "fr"}
@@ -92,7 +92,7 @@ def semaine_indice_volume(o: dict, h=430) -> go.Figure:
     fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, vertical_spacing=0.08,
                         row_heights=[0.55, 0.45] if rows == 2 else [1],
                         subplot_titles=("MASI 20 (pts)", "Volume du marché central (M MAD)") if rows == 2 else None)
-    x = [d.strftime("%a %d/%m") for d in j["date"]]
+    x = [jour(d) for d in j["date"]]
     fig.add_trace(go.Scatter(x=x, y=j["cloture"], mode="lines+markers+text", name="MASI 20",
                              line=dict(color=C.GOLD, width=3), marker=dict(size=9, color=C.GOLD),
                              text=[f"{v * 100:+.2f} %".replace(".", ",") if pd.notna(v) else "" for v in j["var"]],
@@ -242,7 +242,7 @@ def futures_semaine(fj: pd.DataFrame, h=360) -> go.Figure:
     """Clôtures quotidiennes de chaque échéance pendant la semaine."""
     fig = go.Figure()
     for t, g in sorted(fj.groupby("ticker"), key=lambda kv: F.echeance(kv[0])[1]):
-        fig.add_trace(go.Bar(x=[d.strftime("%a %d/%m") for d in g["date"]], y=g["cloture"], name=F.libelle(t),
+        fig.add_trace(go.Bar(x=[jour(d) for d in g["date"]], y=g["cloture"], name=F.libelle(t),
                              marker_color=F.couleur(t),
                              text=[nombre(v, 1) for v in g["cloture"]], textposition="outside", textfont=dict(size=9)))
     lo, hi = fj["cloture"].min(), fj["cloture"].max()
