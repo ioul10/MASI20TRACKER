@@ -67,7 +67,7 @@ def score_valeurs(m: pd.DataFrame, debut=None, fin=None) -> pd.DataFrame:
     # Pénalité si la valeur n'a pas traité à toutes les séances
     regul = g["seances_traitees"] / g["seances"]
     g["score"] = (100 * score * penal * (0.5 + 0.5 * regul)).round(0)
-    g["niveau"] = pd.cut(g["score"], [-1, 40, 60, 80, 101], labels=["Faible", "Moyenne", "Bonne", "Élevée"])
+    g["niveau"] = pd.cut(g["score"], [-1, 35, 65, 101], labels=["Peu liquide", "Moyenne", "Liquide"]).astype(str)
     return g.sort_values("score", ascending=False).reset_index(drop=True)
 
 
@@ -97,6 +97,17 @@ def indice_liquidite(m: pd.DataFrame, lissage: int = 5) -> pd.DataFrame:
     a["indice_lisse"] = a["indice"].rolling(lissage, min_periods=1).mean()
     a["historique"] = np.arange(1, len(a) + 1)
     return a.reset_index()
+
+
+SEANCES_MIN_NOTE = 20  # ≈ 4 semaines de bulletins avant d'afficher la note globale
+
+
+def note_disponible(m: pd.DataFrame, fin=None) -> tuple[bool, int]:
+    """La note globale compare la période à l'historique : elle n'a de sens
+    qu'avec au moins SEANCES_MIN_NOTE séances de bulletins."""
+    d = m["date"] if fin is None else m.loc[m["date"] <= pd.Timestamp(fin), "date"]
+    n = int(d.nunique())
+    return n >= SEANCES_MIN_NOTE, n
 
 
 def qualite_mouvement(rendement: float, tendance_volume: float) -> str:
