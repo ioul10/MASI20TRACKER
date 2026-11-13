@@ -3,7 +3,7 @@ import streamlit as st
 
 from src import charts as G
 from src import hebdo as H
-from src import report
+from src import report, report_word
 from src import ui
 from src.fmt import date_courte, mad, nombre, pct
 
@@ -123,8 +123,14 @@ cle = f"avis_{fin:%Y%m%d}"
 avis = st.text_area("Proposition générée à partir des chiffres : relisez et corrigez avant l'export.", value=o["avis"], height=150, key=cle)
 auteur = st.text_input("Signature (facultatif)", value="DRF")
 
-page = report.html_bilan(o, avis, auteur)
-st.download_button("Télécharger le bilan (HTML, à imprimer en PDF)", page.encode("utf-8"),
-                   file_name=f"MASI20TRACKER_bilan_{fin:%Y%m%d}.html", mime="text/html", type="primary")
-st.caption("Ouvrez le fichier dans votre navigateur puis Ctrl+P → « Enregistrer au format PDF » (A4 paysage).")
+c1, c2 = st.columns(2)
+with c1:
+    st.download_button("Télécharger le bilan Word (.docx)", report_word.docx_bilan(o, avis, auteur),
+                       file_name=f"MASI20TRACKER_bilan_{fin:%Y%m%d}.docx", type="primary", width="stretch",
+                       mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    st.caption("Modifiable dans Word : textes, tableaux et graphiques (en images).")
+with c2:
+    st.download_button("Télécharger le bilan HTML (à imprimer en PDF)", report.html_bilan(o, avis, auteur).encode("utf-8"),
+                       file_name=f"MASI20TRACKER_bilan_{fin:%Y%m%d}.html", mime="text/html", width="stretch")
+    st.caption("Graphiques interactifs. Pour le PDF : ouvrir dans le navigateur, puis Ctrl+P (A4 paysage).")
 ui.pied()
