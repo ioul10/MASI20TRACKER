@@ -73,7 +73,8 @@ if o.get("composants_dispo"):
              {"lab": "Contrôle des poids", "val": pct(o["controle_recon"]), "sub": f"reconstitué ({nombre(o['controle_pb'], 0, True)} pb)"},
              {"lab": "Qualité du mouvement", "val": pct(o["qualite_hausse"], 0, False) if pd.notna(o["qualite_hausse"]) else "–",
               "sub": "de la contribution positive avec volume en hausse"},
-             {"lab": "Indice de liquidité", "val": f"{nombre(o['liquidite_fin'], 0)} / 100", "sub": f"{o['liquidite_historique']} séance(s) d'historique"}])
+             {"lab": "Note de liquidité", "val": f"{nombre(o['liquidite_fin'], 0)} / 100" if o.get("liquidite_ok") else "En constitution",
+              "sub": "vs semaines précédentes" if o.get("liquidite_ok") else f"{o['liquidite_historique']} / 20 séances importées"}])
     ui.section("Indice et volume, séance par séance")
     st.plotly_chart(G.semaine_indice_volume(o), width="stretch", config=G.CFG)
     c1, c2 = st.columns(2)
@@ -86,11 +87,11 @@ if o.get("composants_dispo"):
     ui.section("Détail des 20 valeurs")
     t = pd.DataFrame({"Valeur": b["nom"], "Poids": b["poids"], "Var. sem.": b["rendement"], "Contrib. (pb)": b["contribution_pb"],
                       "Volume": b["volume"], "Vol./poids": b["volume_sur_poids"], "Tend. vol.": b["tendance_volume"],
-                      "Liquidité": b.get("score"), "Signal": b["qualite"]})
+                      "Liquidité": b.get("niveau"), "Signal": b["qualite"]})
     st.dataframe(ui.style_table(t, pct_cols=["Var. sem."], signe_cols=["Contrib. (pb)"],
                                 fmt={"Poids": lambda v: pct(v, 1, False), "Contrib. (pb)": lambda v: nombre(v, 1, True),
                                      "Volume": lambda v: mad(v), "Vol./poids": lambda v: nombre(v, 1) + "×",
-                                     "Tend. vol.": lambda v: nombre(v, 2) + "×", "Liquidité": lambda v: nombre(v, 0)}),
+                                     "Tend. vol.": lambda v: nombre(v, 2) + "×"}),
                  width="stretch", hide_index=True, height=740)
     c1, c2 = st.columns(2)
     with c1:
