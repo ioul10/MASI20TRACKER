@@ -3,7 +3,6 @@ import streamlit as st
 
 from src import charts as G
 from src import composants as K
-from src import config as C
 from src import liquidite as L
 from src import ui
 from src.fmt import date_courte, mad, nombre, pct
@@ -12,72 +11,94 @@ db = ui.db()
 act = db["actions"]
 if act.empty:
     ui.page("Liquidité")
-    st.info("Aucun bulletin de la cote importé.")
+    st.info("Aucun bulletin de la cote importé. La liquidité se calcule à partir des bulletins de la cote (BCFR).")
     st.stop()
-p = K.panel(act, db["composition"])
-m = L.mesures_jour(p, db["flux"])
-li = L.indice_liquidite(m)
-d = m["date"].max()
-ui.page("Liquidité", "Indice de liquidité du MASI 20 : prix × volume × composants", d)
 
-v = li.iloc[-1]
-etat = "élevée" if v["indice_lisse"] >= 65 else "faible" if v["indice_lisse"] <= 35 else "habituelle"
+m = L.mesures_jour(K.panel(act, db["composition"]), db["flux"])
+ui.page("Liquidité", "Quelles valeurs du MASI 20 s'achètent et se vendent facilement ?", m["date"].max())
+
+# --- Semaines pour lesquelles on a des bulletins de la cote
+fins = sorted(m["date"].dt.to_period("W-FRI").dt.end_time.dt.normalize().unique(), reverse=True)
+fin = pd.Timestamp(st.selectbox(
+    "Semaine", fins,
+    format_func=lambda d: f"Semaine {pd.Timestamp(d).isocalendar().week} · du {date_courte(pd.Timestamp(d) - pd.Timedelta(days=4))} "
+                          f"au {date_courte(pd.Timestamp(d))}"))
+debut = fin - pd.Timedelta(days=4)
+wk = m[(m["date"] >= debut) & (m["date"] <= fin)]
+jours = sorted(wk["date"].unique())
+m20 = db["masi20"]
+seances_marche = m20[(m20["date"] >= debut) & (m20["date"] <= fin)]["date"]
+manq = sorted(set(seances_marche) - set(jours))
+txt = f"Calculé sur **{len(jours)} séance(s)** importée(s) : " + ", ".join(pd.Timestamp(d).strftime("%d/%m") for d in jours)
+if manq:
+    txt += f" · bulletins manquants : " + ", ".join(pd.Timestamp(d).strftime("%d/%m") for d in manq)
+st.markdown(txt)
+
+sc = L.score_valeurs(m, debut, fin)
+
+# --- En bref
+plus, moins = sc.iloc[0], sc.iloc[-1]
+vol = wk.groupby("date")["volume"].sum().mean()
+gros = wk["volume_gros"].sum() / wk["volume"].sum() if wk["volume"].sum() else None
 ui.kpis([
-    {"lab": "Indice de liquidité", "val": f"{nombre(v['indice_lisse'], 0)} / 100", "sub": f"liquidité {etat}", "gold": True},
-    {"lab": "Volume des 20 valeurs", "val": mad(v["volume"]), "sub": f"séance du {date_courte(d)}"},
-    {"lab": "Spread moyen pondéré", "val": pct(v["spread"], 2, False), "sub": "écart offre / demande à la clôture"},
-    {"lab": "Impact prix (Amihud)", "val": nombre(v["amihud"] * 100, 3), "sub": "% de variation par M MAD échangé"},
-    {"lab": "Grosses transactions", "val": pct(v["part_gros"], 0, False), "sub": "du volume (niveaux ≥ 5 M MAD)"},
+    {"lab": "Volume moyen par séance", "val": mad(vol), "sub": "20 valeurs, marché central", "gold": True},
+    {"lab": "La plus liquide", "val": plus["nom"].title(), "sub": f"score {plus['score']:.0f} / 100"},
+    {"lab": "La moins liquide", "val": moins["nom"].title(), "sub": f"score {moins['score']:.0f} / 100"},
+    {"lab": "Valeurs liquides / peu liquides", "val": f"{(sc['niveau'] == 'Liquide').sum()} / {(sc['niveau'] == 'Peu liquide').sum()}",
+     "sub": "sur 20 valeurs"},
+    {"lab": "Grosses transactions", "val": pct(gros, 0, False), "sub": "part du volume (≥ 5 M MAD sur un prix)"},
 ])
-if v["historique"] < 20:
-    ui.note(f"L'indice est calculé sur {int(v['historique'])} séance(s) de bulletins seulement. Il compare chaque séance à "
-            "l'historique disponible : il deviendra fiable après une vingtaine de séances importées.")
 
-ui.section("Indice de liquidité et MASI 20")
-st.plotly_chart(G.liquidite(li, db["masi20"]), width="stretch", config=G.CFG)
-
-ui.section("Score de liquidité par valeur")
-dates = sorted(m["date"].unique(), reverse=True)
-c = st.columns([1, 1, 2])
-fin = pd.Timestamp(c[0].selectbox("Jusqu'au", dates, format_func=lambda t: date_courte(pd.Timestamp(t))))
-fen = c[1].selectbox("Sur", [1, 5, 20, 60], index=1, format_func=lambda n: f"{n} séance(s)")
-avant = sorted(x for x in m["date"].unique() if x <= fin)
-deb = avant[-min(fen, len(avant))]
-if fen > len(avant):
-    st.caption(f"Seulement {len(avant)} séance(s) de bulletins disponibles jusqu'à cette date.")
-sc = L.score_valeurs(m, deb, fin)
-c1, c2 = st.columns([1, 1.25])
+# --- Classement
+ui.section("Classement des 20 valeurs : de la plus facile à la plus difficile à échanger")
+c1, c2 = st.columns([1, 1.15])
 with c1:
     st.plotly_chart(G.scores(sc), width="stretch", config=G.CFG)
 with c2:
-    tab = pd.DataFrame({"Valeur": sc["nom"], "Score": sc["score"], "Niveau": sc["niveau"].astype(str),
-                        "Volume moyen": sc["volume"], "Rotation": sc["rotation"], "Spread": sc["spread"],
-                        "Amihud": sc["amihud"] * 100, "Contrats / séance": sc["activite"],
-                        "Concentration": sc["concentration"], "Séances traitées": sc["seances_traitees"].astype(str) + "/" + sc["seances"].astype(str)})
-    st.dataframe(ui.style_table(tab, fmt={"Score": lambda v: nombre(v, 0), "Volume moyen": lambda v: mad(v),
-                                          "Rotation": lambda v: pct(v, 3, False), "Spread": lambda v: pct(v, 2, False),
-                                          "Amihud": lambda v: nombre(v, 3), "Contrats / séance": lambda v: nombre(v, 0),
-                                          "Concentration": lambda v: pct(v, 0, False)}),
-                 width="stretch", hide_index=True, height=740)
+    tab = pd.DataFrame({
+        "Valeur": sc["nom"], "Niveau": sc["niveau"], "Score": sc["score"],
+        "Échangé par séance": sc["volume"],
+        "Écart achat / vente": sc["spread"],
+        "Variation pour 10 M MAD": sc["amihud"] * 10,
+        "Séances avec échanges": sc["seances_traitees"].astype(str) + " / " + sc["seances"].astype(str)})
+    sty = ui.style_table(tab, fmt={"Score": lambda v: nombre(v, 0), "Échangé par séance": lambda v: mad(v),
+                                   "Écart achat / vente": lambda v: pct(v, 2, False),
+                                   "Variation pour 10 M MAD": lambda v: pct(v, 2, False)})
+    sty = sty.map(lambda v: f"color: {G.NIVEAUX.get(v, '')}; font-weight: 600" if v in G.NIVEAUX else "", subset=["Niveau"])
+    st.dataframe(sty, width="stretch", hide_index=True, height=35 * len(tab) + 40)
 
-with st.expander("Méthode"):
-    w = C.POIDS_LIQUIDITE
-    st.markdown(f"""
-**Cinq mesures par valeur et par séance**, toutes tirées du bulletin de la cote :
+with st.expander("Comment lire ce classement"):
+    st.markdown("""
+Une valeur **liquide** s'achète et se vend facilement : il s'en échange beaucoup, l'écart entre le prix
+d'achat et le prix de vente est faible, et son cours bouge peu quand on échange.
 
-| Mesure | Calcul | Sens | Poids |
-|---|---|---|---|
-| Volume | Volume du marché central en MAD (marché de blocs exclu) | ↑ plus liquide | {w['volume']:.0%} |
-| Rotation | Volume ÷ capitalisation flottante | ↑ plus liquide | {w['rotation']:.0%} |
-| Amihud (impact prix) | \\|variation\\| ÷ volume en M MAD | ↓ plus liquide | {w['amihud']:.0%} |
-| Spread | (offre − demande) ÷ milieu, à la clôture | ↓ plus liquide | {w['spread']:.0%} |
-| Activité | Nombre de contrats | ↑ plus liquide | {w['activite']:.0%} |
+| Colonne | Question | Bon signe |
+|---|---|---|
+| Échangé par séance | Combien s'échange-t-il ? | Élevé |
+| Écart achat / vente | Combien coûte un aller-retour ? | Faible |
+| Variation pour 10 M MAD | De combien le cours bouge-t-il quand on échange 10 M MAD ? | Faible |
+| Séances avec échanges | La valeur s'échange-t-elle tous les jours ? | Toutes |
 
-**Score par valeur (0-100)** : rang de la valeur parmi les 20 pour chaque mesure, moyenne pondérée, puis deux pénalités :
-volume concentré sur un seul prix (plus de 50 % du volume) et séances sans transaction.
+Le **score** combine ces mesures en comparant les 20 valeurs entre elles (100 = la plus liquide du lot).
+Une valeur dont le volume vient surtout d'une seule grosse transaction est pénalisée, car ce volume ne se répète pas.
+""")
 
-**Indice de liquidité du MASI 20 (0-100)** : les mesures sont agrégées sur les 20 valeurs (volumes additionnés,
-spread et Amihud pondérés par les poids), puis chaque séance est classée dans l'historique des 250 dernières séances.
-50 = liquidité habituelle ; au-dessus, le marché est plus liquide que d'habitude. La courbe bleue est la moyenne sur 5 séances.
-""".replace("%", " %"))
+# --- Note globale (seulement avec assez d'historique)
+ui.section("Note globale du MASI 20 : la semaine est-elle plus ou moins liquide que d'habitude ?")
+ok, n = L.note_disponible(m, fin)
+if not ok:
+    st.progress(min(n / L.SEANCES_MIN_NOTE, 1.0),
+                text=f"Historique en cours de constitution : {n} / {L.SEANCES_MIN_NOTE} séances de bulletins importées")
+    st.caption("La note globale compare chaque semaine aux précédentes. Elle s'affichera automatiquement après "
+               f"{L.SEANCES_MIN_NOTE} séances importées (environ 4 semaines). Le classement ci-dessus, lui, est déjà fiable.")
+else:
+    li = L.indice_liquidite(m[m["date"] <= fin])
+    li["semaine"] = li["date"].dt.to_period("W-FRI").dt.end_time.dt.normalize()
+    h = li.groupby("semaine", as_index=False)["indice"].mean().rename(columns={"indice": "note"}).tail(26)
+    h["semaine"] = h["semaine"].dt.strftime("S%V · %d/%m")
+    note = float(h["note"].iloc[-1])
+    lecture = ("plus liquide que d'habitude" if note >= 65 else "moins liquide que d'habitude" if note <= 35
+               else "liquidité habituelle")
+    ui.kpis([{"lab": "Note de la semaine", "val": f"{note:.0f} / 100", "sub": lecture, "gold": True}])
+    st.plotly_chart(G.note_semaines(h), width="stretch", config=G.CFG)
 ui.pied()
