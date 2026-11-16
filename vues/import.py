@@ -7,7 +7,14 @@ from src.fmt import date_courte
 ui.page("Import des bulletins", "Déposez les bulletins du jour : ils sont lus, contrôlés, puis enregistrés")
 
 if store.github_actif():
-    st.success("Sauvegarde GitHub active : chaque import est enregistré dans le repo.", icon=":material/cloud_done:")
+    st.success("Sauvegarde GitHub configurée : chaque import est enregistré dans le repo.", icon=":material/cloud_done:")
+    with st.expander("Tester la sauvegarde GitHub"):
+        if st.button("Lancer le test"):
+            with st.spinner("Vérification…"):
+                ok, etapes = store.diagnostic_github()
+            for e in etapes:
+                st.markdown(e)
+            (st.success if ok else st.error)("Tout est en ordre." if ok else "Corrigez le point marqué ❌ dans les secrets, puis relancez le test.")
 else:
     ui.note("Sauvegarde GitHub non configurée : les imports restent sur ce serveur et seront perdus au prochain redémarrage "
             "de Streamlit Cloud. Ajoutez GITHUB_TOKEN et GITHUB_REPO dans les secrets (voir le README).")
@@ -79,3 +86,8 @@ if st.button("Valider l'import", type="primary"):
                 n += 1
     ui.vider_cache()
     st.success(f"{n} bulletin(s) enregistré(s). Les indicateurs sont recalculés automatiquement.")
+    if store.ERREURS_GITHUB:
+        st.warning("Les données sont enregistrées sur le serveur, mais **pas sauvegardées sur GitHub** "
+                   "(elles seront perdues au prochain redémarrage) :\n\n- " + "\n- ".join(store.ERREURS_GITHUB) +
+                   "\n\nUtilisez « Tester la sauvegarde GitHub » en haut de la page pour trouver la cause.")
+        store.ERREURS_GITHUB.clear()
