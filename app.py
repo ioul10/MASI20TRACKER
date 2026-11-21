@@ -37,11 +37,9 @@ if not acces_autorise():
 
 pages = {
     "Marché": [
-        st.Page("vues/tableau_de_bord.py", title="Tableau de bord", icon=":material/dashboard:", default=True),
-        st.Page("vues/indice.py", title="Indice & technique", icon=":material/candlestick_chart:"),
+        st.Page("vues/indice.py", title="Indice & technique", icon=":material/candlestick_chart:", default=True),
         st.Page("vues/composants.py", title="Composants", icon=":material/grid_view:"),
         st.Page("vues/futures.py", title="Marché à terme", icon=":material/timeline:"),
-        st.Page("vues/liquidite.py", title="Liquidité", icon=":material/water_drop:"),
     ],
     "Rapports": [
         st.Page("vues/bilan_hebdo.py", title="Bilan hebdo", icon=":material/summarize:"),
