@@ -82,18 +82,32 @@ def _axes_dates(fig, dates):
     fig.update_xaxes(rangeslider_visible=False, rangebreaks=[dict(values=_jours_sans_seance(dates))])
 
 
-def _ligne_indice(fig, t, secondaire=True):
-    """Le MASI 20 en ligne, sur l'axe de droite (comme dans l'Excel)."""
-    fig.add_trace(go.Scatter(x=t["date"], y=t["cloture"], name="MASI 20", line=dict(color=C.NAVY, width=2),
-                             hovertemplate="%{y:,.2f}"), secondary_y=secondaire)
+def _trace_indice(t, bougies=False, largeur=2.0):
+    """Le MASI 20 en courbe (clôtures) ou en chandeliers.
+    Le bulletin ne donne pas d'ouverture : elle est prise égale à la clôture de la veille.
+    Plus haut / plus bas absents : remplacés par le max / min de l'ouverture et de la clôture."""
+    if not bougies:
+        return go.Scatter(x=t["date"], y=t["cloture"], name="MASI 20", line=dict(color=C.NAVY, width=largeur),
+                          hovertemplate="%{y:,.2f}")
+    o = t["ouverture"] if "ouverture" in t else t["cloture"].shift()
+    o = o.fillna(t["cloture"])
+    hi = pd.concat([t["plus_haut"].astype(float), o, t["cloture"]], axis=1).max(axis=1)
+    lo = pd.concat([t["plus_bas"].astype(float), o, t["cloture"]], axis=1).min(axis=1)
+    return go.Candlestick(x=t["date"], open=o, high=hi, low=lo, close=t["cloture"], name="MASI 20",
+                          increasing=dict(line=dict(color=C.UP, width=1), fillcolor=C.UP),
+                          decreasing=dict(line=dict(color=C.DOWN, width=1), fillcolor=C.DOWN))
+
+
+def _ligne_indice(fig, t, secondaire=True, bougies=False):
+    """Le MASI 20 sur l'axe de droite (comme dans l'Excel), en courbe ou en chandeliers."""
+    fig.add_trace(_trace_indice(t, bougies), secondary_y=secondaire)
     fig.update_yaxes(title_text="MASI 20 (pts)", showgrid=False, secondary_y=True, tickformat=",.0f")
 
 
-def indice_moyennes(t: pd.DataFrame, periodes=(5, 10, 20, 40), prefixe="mm", h=470) -> go.Figure:
-    """MASI 20 et ses moyennes mobiles 5, 10, 20, 40."""
+def indice_moyennes(t: pd.DataFrame, periodes=(5, 10, 20, 40), prefixe="mm", h=470, bougies=False) -> go.Figure:
+    """MASI 20 (courbe ou chandeliers) et ses moyennes mobiles 5, 10, 20, 40."""
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=t["date"], y=t["cloture"], name="MASI 20", line=dict(color=C.NAVY, width=2.6),
-                             hovertemplate="%{y:,.2f}"))
+    fig.add_trace(_trace_indice(t, bougies, 2.6))
     lib = "MM" if prefixe == "mm" else "EMA"
     for n in periodes:
         fig.add_trace(go.Scatter(x=t["date"], y=t[f"{prefixe}{n}"], name=f"{lib} {n}",
@@ -102,7 +116,7 @@ def indice_moyennes(t: pd.DataFrame, periodes=(5, 10, 20, 40), prefixe="mm", h=4
     return _layout(fig, h)
 
 
-def rsi_barres(t: pd.DataFrame, n=14, h=420) -> go.Figure:
+def rsi_barres(t: pd.DataFrame, n=14, h=420, bougies=False) -> go.Figure:
     """RSI en barres (couleur = zone), seuils 30 / 50 / 70, MASI 20 en ligne."""
     col = f"rsi{n}"
     v = t[col]
@@ -112,7 +126,7 @@ def rsi_barres(t: pd.DataFrame, n=14, h=420) -> go.Figure:
         fig.add_hrect(y0=y0, y1=y1, fillcolor=c, line_width=0, layer="below")
     fig.add_trace(go.Bar(x=t["date"], y=v, name=f"RSI {n}", marker_color=couleurs, hovertemplate="%{y:.0f}"),
                   secondary_y=False)
-    _ligne_indice(fig, t)
+    _ligne_indice(fig, t, bougies=bougies)
     for y, c, lab in ((70, C.DOWN, "70 · surachat"), (50, C.MUTED, "50"), (30, C.UP, "30 · survente")):
         fig.add_hline(y=y, line=dict(color=c, width=1, dash="dash"), annotation_text=lab,
                       annotation_position="top left", annotation_font=dict(size=10, color=c))
@@ -124,7 +138,7 @@ def rsi_barres(t: pd.DataFrame, n=14, h=420) -> go.Figure:
     return fig
 
 
-def atr_barres(t: pd.DataFrame, n=14, h=420) -> go.Figure:
+def atr_barres(t: pd.DataFrame, n=14, h=420, bougies=False) -> go.Figure:
     """ATR en barres (points d'indice), MASI 20 en ligne. Barres pâles = haut/bas absents (ATR estimé)."""
     col = f"atr{n}"
     estime = ~t["hl_connu"] if "hl_connu" in t else pd.Series(False, index=t.index)
@@ -138,7 +152,7 @@ def atr_barres(t: pd.DataFrame, n=14, h=420) -> go.Figure:
         fig.add_trace(go.Scatter(x=t["date"], y=[med] * len(t), name=f"Médiane de la période ({nombre(med, 1)} pts)",
                                  mode="lines", line=dict(color=C.GOLD, width=1.4, dash="dash"), hoverinfo="skip"),
                       secondary_y=False)
-    _ligne_indice(fig, t)
+    _ligne_indice(fig, t, bougies=bougies)
     fig.update_yaxes(title_text=f"ATR {n} (pts)", secondary_y=False, rangemode="tozero")
     _axes_dates(fig, t["date"])
     fig = _layout(fig, h)
@@ -147,7 +161,7 @@ def atr_barres(t: pd.DataFrame, n=14, h=420) -> go.Figure:
     return fig
 
 
-def var5_barres(t: pd.DataFrame, seuil=0.03, h=420) -> go.Figure:
+def var5_barres(t: pd.DataFrame, seuil=0.03, h=420, bougies=False) -> go.Figure:
     """Variation sur 5 séances en barres, bande ±3 %, MASI 20 en ligne."""
     v = t["var_5j"] * 100
     s = seuil * 100
@@ -159,7 +173,7 @@ def var5_barres(t: pd.DataFrame, seuil=0.03, h=420) -> go.Figure:
     for y, c, lab in ((s, C.UP, f"+{s:.0f} % · BOOM"), (-s, C.DOWN, f"−{s:.0f} % · SLUMP")):
         fig.add_hline(y=y, line=dict(color=c, width=1, dash="dash"), annotation_text=lab,
                       annotation_position="top left" if y > 0 else "bottom left", annotation_font=dict(size=10, color=c))
-    _ligne_indice(fig, t)
+    _ligne_indice(fig, t, bougies=bougies)
     m = max(float(v.abs().max()) if v.notna().any() else 0, s) * 1.15
     fig.update_yaxes(range=[-m, m], title_text="Variation 5 séances (%)", secondary_y=False)
     _axes_dates(fig, t["date"])

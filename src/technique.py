@@ -16,6 +16,7 @@ def indicateurs(df: pd.DataFrame) -> pd.DataFrame:
     d = df.sort_values("date").reset_index(drop=True).copy()
     c = d["cloture"].astype(float)
     d["var"] = c.pct_change()
+    d["ouverture"] = c.shift()          # le bulletin ne publie pas d'ouverture : clôture de la veille
     d["var_5j"] = c.pct_change(5)
     for n in (5, 10, 20, 40, 60):
         d[f"mm{n}"] = c.rolling(n).mean()
