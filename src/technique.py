@@ -20,19 +20,24 @@ def indicateurs(df: pd.DataFrame) -> pd.DataFrame:
     for n in (5, 10, 20, 40, 60):
         d[f"mm{n}"] = c.rolling(n).mean()
         d[f"ema{n}"] = c.ewm(span=n, adjust=False, min_periods=n).mean()
-    # RSI 14 (lissage de Wilder)
+    # RSI 5 et 14 (lissage de Wilder)
     delta = c.diff()
-    gain = delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
-    perte = (-delta.clip(upper=0)).ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
-    d["rsi14"] = 100 - 100 / (1 + gain / perte.replace(0, np.nan))
-    # ATR 14 : vrai range si plus haut/bas connus, sinon |Δ clôture|
+    for n in (5, 14):
+        gain = delta.clip(lower=0).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+        perte = (-delta.clip(upper=0)).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+        rs = gain / perte.replace(0, np.nan)
+        d[f"rsi{n}"] = (100 - 100 / (1 + rs)).where(perte > 0, 100.0).where(gain.notna())
+    # ATR 5 et 14 : vrai range si plus haut/bas connus, sinon |Δ clôture|
     h = d.get("plus_haut", pd.Series(np.nan, index=d.index)).astype(float)
     b = d.get("plus_bas", pd.Series(np.nan, index=d.index)).astype(float)
     pc = c.shift()
     tr = pd.concat([h - b, (h - pc).abs(), (b - pc).abs()], axis=1).max(axis=1, skipna=True)
-    tr = tr.where(h.notna() & b.notna(), (c - pc).abs())
-    d["atr14"] = tr.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
-    d["atr_pct"] = d["atr14"] / c
+    d["hl_connu"] = h.notna() & b.notna()
+    d["tr"] = tr.where(d["hl_connu"], (c - pc).abs())
+    for n in (5, 14):
+        d[f"atr{n}"] = d["tr"].ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+        d[f"atr{n}_pct"] = d[f"atr{n}"] / c
+    d["atr_pct"] = d["atr14_pct"]
     # Bandes de Bollinger 20, 2 écarts-types
     sd = c.rolling(20).std()
     d["bb_haut"], d["bb_bas"] = d["mm20"] + 2 * sd, d["mm20"] - 2 * sd

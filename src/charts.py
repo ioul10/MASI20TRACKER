@@ -74,6 +74,131 @@ def indice(tech: pd.DataFrame, ema=True, bollinger=False, fib: dict | None = Non
     return _layout(fig, h)
 
 
+# ------------------------------------------------- indice & technique (v2)
+COULEURS_MM = {5: "#D98A1E", 10: "#1BA37A", 20: "#6250D6", 40: "#C2477A"}
+
+
+def _axes_dates(fig, dates):
+    fig.update_xaxes(rangeslider_visible=False, rangebreaks=[dict(values=_jours_sans_seance(dates))])
+
+
+def _ligne_indice(fig, t, secondaire=True):
+    """Le MASI 20 en ligne, sur l'axe de droite (comme dans l'Excel)."""
+    fig.add_trace(go.Scatter(x=t["date"], y=t["cloture"], name="MASI 20", line=dict(color=C.NAVY, width=2),
+                             hovertemplate="%{y:,.2f}"), secondary_y=secondaire)
+    fig.update_yaxes(title_text="MASI 20 (pts)", showgrid=False, secondary_y=True, tickformat=",.0f")
+
+
+def indice_moyennes(t: pd.DataFrame, periodes=(5, 10, 20, 40), prefixe="mm", h=470) -> go.Figure:
+    """MASI 20 et ses moyennes mobiles 5, 10, 20, 40."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=t["date"], y=t["cloture"], name="MASI 20", line=dict(color=C.NAVY, width=2.6),
+                             hovertemplate="%{y:,.2f}"))
+    lib = "MM" if prefixe == "mm" else "EMA"
+    for n in periodes:
+        fig.add_trace(go.Scatter(x=t["date"], y=t[f"{prefixe}{n}"], name=f"{lib} {n}",
+                                 line=dict(color=COULEURS_MM[n], width=1.5), hovertemplate="%{y:,.2f}"))
+    _axes_dates(fig, t["date"])
+    return _layout(fig, h)
+
+
+def rsi_barres(t: pd.DataFrame, n=14, h=420) -> go.Figure:
+    """RSI en barres (couleur = zone), seuils 30 / 50 / 70, MASI 20 en ligne."""
+    col = f"rsi{n}"
+    v = t[col]
+    couleurs = np.select([v >= 70, v >= 50, v > 30], ["#C23B3B", "#7FA7D9", "#B8C2D3"], "#12804A")
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    for y0, y1, c in ((70, 100, "rgba(194,59,59,.07)"), (0, 30, "rgba(18,128,74,.07)")):
+        fig.add_hrect(y0=y0, y1=y1, fillcolor=c, line_width=0, layer="below")
+    fig.add_trace(go.Bar(x=t["date"], y=v, name=f"RSI {n}", marker_color=couleurs, hovertemplate="%{y:.0f}"),
+                  secondary_y=False)
+    _ligne_indice(fig, t)
+    for y, c, lab in ((70, C.DOWN, "70 · surachat"), (50, C.MUTED, "50"), (30, C.UP, "30 · survente")):
+        fig.add_hline(y=y, line=dict(color=c, width=1, dash="dash"), annotation_text=lab,
+                      annotation_position="top left", annotation_font=dict(size=10, color=c))
+    fig.update_yaxes(range=[0, 100], tickvals=[0, 30, 50, 70, 100], title_text=f"RSI {n}", secondary_y=False)
+    _axes_dates(fig, t["date"])
+    fig = _layout(fig, h)
+    fig.update_layout(bargap=0.15)
+    fig.update_yaxes(tickformat=".0f", secondary_y=False)
+    return fig
+
+
+def atr_barres(t: pd.DataFrame, n=14, h=420) -> go.Figure:
+    """ATR en barres (points d'indice), MASI 20 en ligne. Barres pâles = haut/bas absents (ATR estimé)."""
+    col = f"atr{n}"
+    estime = ~t["hl_connu"] if "hl_connu" in t else pd.Series(False, index=t.index)
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(go.Bar(x=t["date"], y=t[col], name=f"ATR {n} (pts)",
+                         marker_color=np.where(estime, "#C9D3E6", "#5B7DB1"),
+                         customdata=np.c_[t[f"{col}_pct"] * 100, np.where(estime, "estimé (haut/bas absents)", "")],
+                         hovertemplate="%{y:,.1f} pts · %{customdata[0]:.2f} % %{customdata[1]}"), secondary_y=False)
+    med = t[col].median()
+    if pd.notna(med):
+        fig.add_trace(go.Scatter(x=t["date"], y=[med] * len(t), name=f"Médiane de la période ({nombre(med, 1)} pts)",
+                                 mode="lines", line=dict(color=C.GOLD, width=1.4, dash="dash"), hoverinfo="skip"),
+                      secondary_y=False)
+    _ligne_indice(fig, t)
+    fig.update_yaxes(title_text=f"ATR {n} (pts)", secondary_y=False, rangemode="tozero")
+    _axes_dates(fig, t["date"])
+    fig = _layout(fig, h)
+    fig.update_layout(bargap=0.15)
+    fig.update_yaxes(tickformat=",.0f", secondary_y=False)
+    return fig
+
+
+def var5_barres(t: pd.DataFrame, seuil=0.03, h=420) -> go.Figure:
+    """Variation sur 5 séances en barres, bande ±3 %, MASI 20 en ligne."""
+    v = t["var_5j"] * 100
+    s = seuil * 100
+    couleurs = np.select([v >= s, v <= -s], [C.UP, C.DOWN], "#B8C2D3")
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_hrect(y0=-s, y1=s, fillcolor="rgba(138,148,166,.10)", line_width=0, layer="below")
+    fig.add_trace(go.Bar(x=t["date"], y=v, name="Variation 5 séances", marker_color=couleurs,
+                         hovertemplate="%{y:+.2f} %"), secondary_y=False)
+    for y, c, lab in ((s, C.UP, f"+{s:.0f} % · BOOM"), (-s, C.DOWN, f"−{s:.0f} % · SLUMP")):
+        fig.add_hline(y=y, line=dict(color=c, width=1, dash="dash"), annotation_text=lab,
+                      annotation_position="top left" if y > 0 else "bottom left", annotation_font=dict(size=10, color=c))
+    _ligne_indice(fig, t)
+    m = max(float(v.abs().max()) if v.notna().any() else 0, s) * 1.15
+    fig.update_yaxes(range=[-m, m], title_text="Variation 5 séances (%)", secondary_y=False)
+    _axes_dates(fig, t["date"])
+    fig = _layout(fig, h)
+    fig.update_layout(bargap=0.15)
+    fig.update_yaxes(tickformat="+.0f", ticksuffix=" %", secondary_y=False)
+    return fig
+
+
+def volumes_evolution(v: pd.DataFrame, m20: pd.DataFrame | None = None, h=440) -> go.Figure:
+    """Volume (marché central) par séance ou par semaine : courant + grosses transactions,
+    moyenne mobile, MASI 20 en ligne. Axe en catégories : seules les séances importées apparaissent."""
+    hebdo = v.attrs.get("hebdo", False)
+    x = [("sem. " if hebdo else "") + d.strftime("%d/%m/%y") for d in v["date"]]
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(go.Bar(x=x, y=(v["volume"] - v["volume_gros"]) / 1e6, name="Volume courant",
+                         marker_color="#5B7DB1", hovertemplate="%{y:,.1f} M MAD"), secondary_y=False)
+    fig.add_trace(go.Bar(x=x, y=v["volume_gros"] / 1e6, name="Grosses transactions (≥ 5 M MAD)",
+                         marker_color=C.GOLD, hovertemplate="%{y:,.1f} M MAD"), secondary_y=False)
+    if "moyenne" in v:
+        fig.add_trace(go.Scatter(x=x, y=v["moyenne"] / 1e6, name=v.attrs.get("lib_moyenne", "Moyenne"),
+                                 line=dict(color=C.INK, width=1.6, dash="dot"), hovertemplate="%{y:,.1f} M MAD"),
+                      secondary_y=False)
+    if m20 is not None and not m20.empty:
+        s = m20.set_index("date")["cloture"].sort_index()
+        if hebdo:
+            s = s.resample("W-FRI").last()
+        y = s.reindex(v["date"]).values
+        fig.add_trace(go.Scatter(x=x, y=y, name="MASI 20", mode="lines+markers", line=dict(color=C.NAVY, width=2),
+                                 marker=dict(size=5), hovertemplate="%{y:,.2f}"), secondary_y=True)
+        fig.update_yaxes(title_text="MASI 20 (pts)", showgrid=False, secondary_y=True)
+    fig.update_layout(barmode="stack", bargap=0.25)
+    fig.update_yaxes(title_text="Volume (M MAD)", secondary_y=False, rangemode="tozero")
+    fig = _layout(fig, h)
+    fig.update_xaxes(type="category")
+    fig.update_yaxes(tickformat=",.0f")
+    return fig
+
+
 def bougies_hebdo(w: pd.DataFrame, h=320) -> go.Figure:
     fig = go.Figure(go.Candlestick(x=w["date"], open=w["ouverture"], high=w["plus_haut"], low=w["plus_bas"],
                                    close=w["cloture"], name="Semaine",

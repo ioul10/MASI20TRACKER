@@ -107,9 +107,7 @@ def html_bilan(o: dict, avis: str, auteur: str = "") -> str:
                 ["Depuis le lancement", f"{fu['seances_depuis_lancement']} séances · {mad(fu['volume_depuis_lancement'])}"]]
     if o.get("composants_dispo"):
         gen += [["Hausses / baisses (20 valeurs)", f"{o['hausses']} / {o['baisses']}"],
-                ["Volume des 20 valeurs (central)", f"{mad(o['volume_masi20'])} · {pct(o['part_marche'], 0, False)} du marché"],
-                ["Note de liquidité MASI 20", f"{nombre(o['liquidite_fin'], 0)} / 100" if o.get("liquidite_ok")
-                 else f"en constitution ({o['liquidite_historique']} / 20 séances)"]]
+                ["Volume des 20 valeurs (central)", f"{mad(o['volume_masi20'])} · {pct(o['part_marche'], 0, False)} du marché"]]
     p.append(_table(gen, ["Indicateur", "Valeur"], ["", "n"]))
 
     # Futures
@@ -144,9 +142,9 @@ def html_bilan(o: dict, avis: str, auteur: str = "") -> str:
                           (nombre(r["contribution_pb"], 1, True), r["contribution_pb"]), mad(r.get("volume")),
                           nombre(r.get("volume_sur_poids"), 1) + "×",
                           (nombre(r.get("tendance_volume"), 2) + "×") if pd.notna(r.get("tendance_volume")) else "–",
-                          r.get("niveau", "–"), r.get("qualite", "")] for _, r in b.iterrows()],
-                        ["Valeur", "Poids", "Var. sem.", "Contrib. (pb)", "Volume", "Vol./poids", "Tend. vol.", "Liquidité", "Signal"],
-                        ["", "n", "n", "n", "n", "n", "n", "n", ""]))
+                          r.get("qualite", "")] for _, r in b.iterrows()],
+                        ["Valeur", "Poids", "Var. sem.", "Contrib. (pb)", "Volume", "Vol./poids", "Tend. vol.", "Signal"],
+                        ["", "n", "n", "n", "n", "n", "n", ""]))
         s = o["secteurs"]
         p.append("<div class='grid2'><div><h2>Par secteur</h2>")
         p.append(_table([[r["secteur"], pct(r["poids"], 1, False), (nombre(r["contribution_pb"], 1, True), r["contribution_pb"]),

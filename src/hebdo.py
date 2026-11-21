@@ -1,5 +1,5 @@
 """Bilan hebdomadaire : rassemble l'indice, les composants, les futures,
-l'analyse technique et la liquidité d'une semaine donnée."""
+l'analyse technique d'une semaine donnée."""
 from __future__ import annotations
 
 import numpy as np
@@ -68,11 +68,6 @@ def bilan(db: dict, fin_semaine) -> dict:
         else:
             b["tendance_volume"] = np.nan
         b["qualite"] = [L.qualite_mouvement(r, t) for r, t in zip(b["rendement"], b["tendance_volume"])]
-        m = L.mesures_jour(K.panel(db["actions"], db["composition"]), db["flux"])
-        sc = L.score_valeurs(m, debut, fin)
-        if not sc.empty:
-            b = b.merge(sc[["isin", "score", "niveau", "spread", "amihud"]], on="isin", how="left")
-            out["liquidite_valeurs"] = sc
         out["composants"] = b
         out["secteurs"] = K.par_secteur(b)
         out["hausses"] = int((b["rendement"] > 0).sum())
@@ -96,14 +91,6 @@ def bilan(db: dict, fin_semaine) -> dict:
         pos = b.loc[b["contribution_pb"] > 0]
         out["qualite_hausse"] = (pos.loc[pos["tendance_volume"] > 1, "contribution_pb"].sum() / pos["contribution_pb"].sum()
                                  if len(pos) and pos["tendance_volume"].notna().any() else np.nan)
-        li = L.indice_liquidite(m)
-        out["liquidite"] = li
-        lw = li[li["date"] <= fin]
-        out["liquidite_fin"] = float(lw["indice_lisse"].iloc[-1]) if not lw.empty else np.nan
-        out["liquidite_historique"] = int(lw["historique"].iloc[-1]) if not lw.empty else 0
-        out["liquidite_ok"], _ = L.note_disponible(m, fin)
-        if out["liquidite_ok"]:
-            out["liquidite_fin"] = float(lw[lw["date"] >= debut]["indice"].mean())
         out["a_surveiller"] = a_surveiller(b)
 
     # Futures
@@ -167,7 +154,7 @@ def avis_auto(o: dict) -> str:
         if t["base_pct"].notna().any():
             b1, b2 = t["base_pct"].iloc[0], t["base_pct"].iloc[-1]
             forme = "en déport" if b2 < 0 else "en report"
-            s.append(f"La courbe est {forme} : base de {_fr(b1 * 100, 1, True)} % sur {t['contrat'].iloc[0]} "
+            s.append(f"Les futures cotent {forme} : base de {_fr(b1 * 100, 1, True)} % sur {t['contrat'].iloc[0]} "
                      f"et de {_fr(b2 * 100, 1, True)} % sur {t['contrat'].iloc[-1]}.")
         d_oi = fu.get("delta_oi_total")
         if pd.notna(d_oi) and d_oi != 0:

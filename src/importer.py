@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 from . import config as C
@@ -125,3 +126,83 @@ def _fusion_masi20(new: pd.DataFrame, haut, bas) -> pd.DataFrame:
         h = b = None
     row.update({"plus_haut": h, "plus_bas": b})
     return pd.DataFrame([row])
+
+
+# ------------------------------------------------ plus haut / plus bas du MASI 20
+_NOMS_HAUT = ("plus haut", "plus_haut", "haut", "high", "+ haut", "+haut", "max")
+_NOMS_BAS = ("plus bas", "plus_bas", "bas", "low", "+ bas", "+bas", "min")
+_NOMS_DATE = ("date", "séance", "seance", "jour")
+
+
+def _nombre_fr(x):
+    """'1 264,07' / '1264.07' / 1264.07 -> 1264.07"""
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        return None
+    if isinstance(x, (int, float)):
+        return float(x)
+    t = str(x).replace(" ", "").replace(" ", "").replace(" ", "")
+    if "," in t and "." in t:
+        t = t.replace(".", "").replace(",", ".") if t.rfind(",") > t.rfind(".") else t.replace(",", "")
+    else:
+        t = t.replace(",", ".")
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def lire_hauts_bas(fichier, nom: str) -> pd.DataFrame:
+    """Lit un CSV ou un Excel contenant au moins : date, plus haut, plus bas.
+    Pour un Excel, prend la première feuille qui contient ces colonnes (ex. MASI20INDEX)."""
+    def normaliser(df: pd.DataFrame) -> pd.DataFrame | None:
+        cols = {str(c).strip().lower(): c for c in df.columns}
+        def trouver(noms):
+            for n in noms:
+                if n in cols:
+                    return cols[n]
+            return next((cols[c] for c in cols if any(c.startswith(n) for n in noms)), None)
+        d, h, b = trouver(_NOMS_DATE), trouver(_NOMS_HAUT), trouver(_NOMS_BAS)
+        if d is None or h is None or b is None:
+            return None
+        out = pd.DataFrame({"date": pd.to_datetime(df[d], dayfirst=True, errors="coerce"),
+                            "plus_haut": df[h].map(_nombre_fr), "plus_bas": df[b].map(_nombre_fr)})
+        return out.dropna(subset=["date"])
+
+    if nom.lower().endswith((".xlsx", ".xlsm", ".xls")):
+        feuilles = pd.read_excel(fichier, sheet_name=None)
+        for _, df in feuilles.items():
+            for entete in range(0, 6):     # en-tête éventuellement décalé de quelques lignes
+                x = df if entete == 0 else df.iloc[entete - 1:].set_axis(df.iloc[entete - 1].values, axis=1).iloc[1:]
+                r = normaliser(x)
+                if r is not None and len(r):
+                    return r
+        raise ValueError("Aucune feuille avec les colonnes Date, Plus haut et Plus bas.")
+    df = pd.read_csv(fichier, sep=None, engine="python")
+    r = normaliser(df)
+    if r is None:
+        raise ValueError("Colonnes attendues : Date, Plus haut, Plus bas.")
+    return r
+
+
+def controler_hauts_bas(saisie: pd.DataFrame, masi20: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Rapproche la saisie des clôtures connues. Renvoie (lignes valides, lignes rejetées avec motif).
+    Règle : plus bas ≤ clôture ≤ plus haut (tolérance 0,01 pt)."""
+    s = saisie.dropna(subset=["plus_haut", "plus_bas"], how="all").copy()
+    s["date"] = pd.to_datetime(s["date"]).dt.normalize()
+    m = masi20[["date", "cloture", "source"]].copy()
+    m["date"] = pd.to_datetime(m["date"]).dt.normalize()
+    x = s.merge(m, on="date", how="left")
+    motif = np.select(
+        [x["cloture"].isna(), x["plus_haut"].isna() | x["plus_bas"].isna(), x["plus_haut"] < x["plus_bas"],
+         x["cloture"] > x["plus_haut"] + 0.01, x["cloture"] < x["plus_bas"] - 0.01],
+        ["séance absente de la base (importez d'abord le bulletin)", "plus haut ou plus bas manquant",
+         "plus haut inférieur au plus bas", "clôture au-dessus du plus haut", "clôture en dessous du plus bas"], "")
+    x["motif"] = motif
+    ok = x[x["motif"] == ""][["date", "cloture", "plus_haut", "plus_bas", "source"]]
+    return ok.reset_index(drop=True), x[x["motif"] != ""].reset_index(drop=True)
+
+
+def enregistrer_hauts_bas(ok: pd.DataFrame) -> int:
+    if ok.empty:
+        return 0
+    return store.upsert("masi20", ok, f"Plus haut / plus bas MASI 20 ({len(ok)} séances)")

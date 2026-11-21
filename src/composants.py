@@ -125,3 +125,42 @@ def poids_implicites(p: pd.DataFrame, masi20: pd.DataFrame, n_seances: int = 60)
     noms = p.drop_duplicates("isin").set_index("isin")["nom"]
     return pd.DataFrame({"isin": x.columns, "nom": noms.reindex(x.columns).values, "poids_implicite": w}), \
         float(np.sqrt(np.mean(err ** 2))), len(y)
+
+
+def volumes_jour(flux: pd.DataFrame, isins=None) -> pd.DataFrame:
+    """Volume du marché central par séance (toutes les valeurs ou une sélection d'ISIN) :
+    date, volume, volume_gros (niveaux ≥ 5 M MAD), nb (transactions), valeurs."""
+    if flux.empty:
+        return pd.DataFrame(columns=["date", "volume", "volume_gros", "nb", "valeurs"])
+    f = flux[flux["marche"] == "central"]
+    if isins is not None:
+        f = f[f["isin"].isin(list(isins))]
+    tous = pd.DataFrame({"date": sorted(flux["date"].unique())})
+    g = f.groupby("date").agg(volume=("volume", "sum"), volume_gros=("volume_gros", "sum"), nb=("nb", "sum"),
+                              valeurs=("isin", "nunique")).reset_index()
+    return tous.merge(g, on="date", how="left").fillna({"volume": 0, "volume_gros": 0, "nb": 0, "valeurs": 0})
+
+
+def volumes_par_valeur(flux: pd.DataFrame, compo_actuelle: pd.DataFrame, derniers: int = 5) -> pd.DataFrame:
+    """Synthèse sur toute la période disponible, une ligne par valeur du MASI 20."""
+    f = flux[(flux["marche"] == "central") & flux["isin"].isin(compo_actuelle["isin"])]
+    dates = sorted(flux["date"].unique())
+    n = len(dates)
+    recentes = dates[-derniers:]
+    piv = f.pivot_table(index="isin", columns="date", values="volume", aggfunc="sum").reindex(columns=dates).fillna(0)
+    piv = piv.reindex(compo_actuelle["isin"]).fillna(0)
+    sem = piv.T.groupby(pd.to_datetime(piv.columns).to_period("W-FRI")).sum().T
+    out = pd.DataFrame({"isin": piv.index})
+    out["nom"] = out["isin"].map(compo_actuelle.set_index("isin")["nom"])
+    out["volume"] = piv.sum(axis=1).values
+    out["moyen"] = out["volume"] / n if n else np.nan
+    out["recent"] = piv[recentes].mean(axis=1).values if n else np.nan
+    out["evolution"] = out["recent"] / out["moyen"].replace(0, np.nan) - 1
+    out["seances_echangees"] = (piv > 0).sum(axis=1).values
+    out["gros"] = out["isin"].map(f.groupby("isin")["volume_gros"].sum()).fillna(0)
+    out["nb"] = out["isin"].map(f.groupby("isin")["nb"].sum()).fillna(0)
+    tot = out["volume"].sum()
+    out["part"] = out["volume"] / tot if tot else np.nan
+    out["semaines"] = [list((sem.loc[i] / 1e6).round(2)) for i in out["isin"]]
+    out.attrs.update({"seances": n, "debut": dates[0] if n else None, "fin": dates[-1] if n else None})
+    return out.sort_values("volume", ascending=False).reset_index(drop=True)

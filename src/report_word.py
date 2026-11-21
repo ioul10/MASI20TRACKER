@@ -325,9 +325,7 @@ def docx_bilan(o: dict, avis: str, auteur: str = "") -> bytes:
                 ["Depuis le lancement", f"{fu['seances_depuis_lancement']} séances · {mad(fu['volume_depuis_lancement'])}"]]
     if o.get("composants_dispo"):
         gen += [["Hausses / baisses (20 valeurs)", f"{o['hausses']} / {o['baisses']}"],
-                ["Volume des 20 valeurs (marché central)", f"{mad(o['volume_masi20'])} · {pct(o['part_marche'], 0, False)} du marché"],
-                ["Note de liquidité MASI 20", f"{nombre(o['liquidite_fin'], 0)} / 100" if o.get("liquidite_ok")
-                 else f"en constitution ({o['liquidite_historique']} / 20 séances)"]]
+                ["Volume des 20 valeurs (marché central)", f"{mad(o['volume_masi20'])} · {pct(o['part_marche'], 0, False)} du marché"]]
     _table(doc, ["Indicateur", "Valeur"], gen, [8.5, 8.5], aligner_droite=(1,))
 
     # Futures
@@ -355,12 +353,12 @@ def docx_bilan(o: dict, avis: str, auteur: str = "") -> bytes:
         _titre(doc, "Où va l'argent")
         _image(doc, _g_volume_poids(b), 15)
         _titre(doc, "Détail des 20 valeurs")
-        _table(doc, ["Valeur", "Poids", "Var. sem.", "Contrib. (pb)", "Volume", "Vol./poids", "Liquidité", "Signal"],
+        _table(doc, ["Valeur", "Poids", "Var. sem.", "Contrib. (pb)", "Volume", "Vol./poids", "Signal"],
                [[r["nom"].title(), pct(r["poids"], 1, False), (pct(r["rendement"], 1), r["rendement"]),
                  (nombre(r["contribution_pb"], 1, True), r["contribution_pb"]), mad(r.get("volume")),
-                 nombre(r.get("volume_sur_poids"), 1) + "×", str(r.get("niveau", "–")), r.get("qualite", "")]
+                 nombre(r.get("volume_sur_poids"), 1) + "×", r.get("qualite", "")]
                 for _, r in b.iterrows()],
-               [3.6, 1.4, 1.6, 1.8, 2.0, 1.6, 2.0, 3.0], aligner_droite=(1, 2, 3, 4, 5))
+               [3.8, 1.6, 1.8, 2.0, 2.2, 1.8, 3.8], aligner_droite=(1, 2, 3, 4, 5))
         _titre(doc, "Par secteur")
         s = o["secteurs"]
         _table(doc, ["Secteur", "Poids", "Contribution (pb)", "Part du volume"],
