@@ -84,7 +84,10 @@ entete("1 · Indice et moyennes mobiles 5 · 10 · 20 · 40",
 **Limite** : une moyenne est toujours **en retard** sur le cours ; en marché sans tendance, les croisements donnent beaucoup de faux signaux.
 
 **Aujourd'hui** : l'indice est au-dessus de **{au_dessus} moyennes sur 4**, {ordre}.""")
-st.plotly_chart(G.indice_moyennes(vue, prefixe=prefixe), width="stretch", config=G.CFG)
+choix_mm = st.pills("Moyennes affichées", [5, 10, 20, 40], selection_mode="multi", default=[5, 10, 20, 40],
+                    format_func=lambda k: f"{lib} {k}", key="mm_affichees",
+                    help="Cliquez sur une moyenne pour l'afficher ou la masquer.")
+st.plotly_chart(G.indice_moyennes(vue, periodes=sorted(choix_mm or []), prefixe=prefixe), width="stretch", config=G.CFG)
 
 # ------------------------------------------------------------ 2. RSI
 rn = 5 if st.session_state.get("rsi_n") == "RSI 5" else 14
