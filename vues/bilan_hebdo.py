@@ -13,7 +13,7 @@ if not sem:
     ui.page("Bilan hebdo")
     st.info("Aucune donnée.")
     st.stop()
-ui.page("Bilan hebdo", "Indice, composants, marché à terme, technique et liquidité : la semaine en un rapport", db["masi20"]["date"].max())
+ui.page("Bilan hebdo", "Indice, composants, marché à terme et technique : la semaine en un rapport", db["masi20"]["date"].max())
 
 c = st.columns([1.2, 2])
 fin = c[0].selectbox("Semaine", sem, format_func=lambda d: f"Semaine {d.isocalendar().week} · du {date_courte(d - pd.Timedelta(days=4))} au {date_courte(d)}")
@@ -72,9 +72,7 @@ if o.get("composants_dispo"):
              {"lab": "Grosses transactions", "val": pct(o["part_gros"], 0, False), "sub": "du volume de l'indice"},
              {"lab": "Contrôle des poids", "val": pct(o["controle_recon"]), "sub": f"reconstitué ({nombre(o['controle_pb'], 0, True)} pb)"},
              {"lab": "Qualité du mouvement", "val": pct(o["qualite_hausse"], 0, False) if pd.notna(o["qualite_hausse"]) else "–",
-              "sub": "de la contribution positive avec volume en hausse"},
-             {"lab": "Note de liquidité", "val": f"{nombre(o['liquidite_fin'], 0)} / 100" if o.get("liquidite_ok") else "En constitution",
-              "sub": "vs semaines précédentes" if o.get("liquidite_ok") else f"{o['liquidite_historique']} / 20 séances importées"}])
+              "sub": "de la contribution positive avec volume en hausse"}])
     ui.section("Indice et volume, séance par séance")
     st.plotly_chart(G.semaine_indice_volume(o), width="stretch", config=G.CFG)
     c1, c2 = st.columns(2)
@@ -87,7 +85,7 @@ if o.get("composants_dispo"):
     ui.section("Détail des 20 valeurs")
     t = pd.DataFrame({"Valeur": b["nom"], "Poids": b["poids"], "Var. sem.": b["rendement"], "Contrib. (pb)": b["contribution_pb"],
                       "Volume": b["volume"], "Vol./poids": b["volume_sur_poids"], "Tend. vol.": b["tendance_volume"],
-                      "Liquidité": b.get("niveau"), "Signal": b["qualite"]})
+                      "Signal": b["qualite"]})
     st.dataframe(ui.style_table(t, pct_cols=["Var. sem."], signe_cols=["Contrib. (pb)"],
                                 fmt={"Poids": lambda v: pct(v, 1, False), "Contrib. (pb)": lambda v: nombre(v, 1, True),
                                      "Volume": lambda v: mad(v), "Vol./poids": lambda v: nombre(v, 1) + "×",
@@ -106,7 +104,7 @@ if o.get("composants_dispo"):
         for x in o["a_surveiller"] or ["Rien de particulier."]:
             st.markdown(f"- {x}")
 else:
-    ui.note("Aucun bulletin de la cote pour cette semaine : la partie composants, volumes et liquidité n'est pas disponible.")
+    ui.note("Aucun bulletin de la cote pour cette semaine : la partie composants et volumes n'est pas disponible.")
 
 ui.section("Analyse technique du MASI 20")
 c1, c2 = st.columns([1, 1.2])

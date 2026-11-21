@@ -15,7 +15,7 @@ if f.empty:
     st.info("Aucune donnée futures. Importez un bulletin du marché à terme (BCFR_D).")
     st.stop()
 d = f["date"].max()
-ui.page("Marché à terme", "Futures sur indice MASI 20 : cours, base, courbe, positions ouvertes et volumes", d)
+ui.page("Marché à terme", "Futures sur indice MASI 20 : cours, base, positions ouvertes et volumes", d)
 x = f[f["date"] == d].sort_values("mois_echeance")
 
 items = [{"lab": "MASI 20 (spot)", "val": nombre(x["spot"].iloc[0]) if x["spot"].notna().any() else "–", "sub": date_courte(d), "gold": True}]
@@ -29,7 +29,7 @@ ui.kpis([{"lab": "Positions ouvertes", "val": nombre(x["open_interest"].sum(), 0
          {"lab": "Séances depuis le lancement", "val": str(f["date"].nunique()), "sub": f"depuis le {date_courte(f['date'].min())}"},
          {"lab": "Volume cumulé", "val": mad(f["volume"].sum()), "sub": "depuis le lancement"}])
 
-onglets = st.tabs(["Cours & base", "Courbe des échéances", "Positions ouvertes & volumes", "Transactions", "Calculateur"])
+onglets = st.tabs(["Cours & base", "Positions ouvertes & volumes", "Transactions", "Calculateur"])
 with onglets[0]:
     c = st.columns([1, 1, 2])
     col = c[0].radio("Prix", ["Clôture", "Compensation"], horizontal=True)
@@ -41,14 +41,6 @@ with onglets[0]:
     st.plotly_chart(G.base_series(fv), width="stretch", config=G.CFG)
     st.caption("Base négative = déport (le future cote sous l'indice). À l'approche de l'échéance, la base converge vers zéro.")
 with onglets[1]:
-    toutes = sorted(f["date"].unique(), reverse=True)
-    defaut = [toutes[0]] + [t for t in toutes if t <= toutes[0] - pd.Timedelta(days=7)][:1] + \
-             [t for t in toutes if t <= toutes[0] - pd.Timedelta(days=28)][:1]
-    choix = st.multiselect("Séances à comparer (4 au maximum)", toutes, default=defaut, max_selections=4,
-                           format_func=lambda t: date_courte(pd.Timestamp(t)))
-    st.plotly_chart(G.courbe_terme(f, [pd.Timestamp(t) for t in choix], m20), width="stretch", config=G.CFG)
-    st.caption("Courbe croissante = report (contango) ; décroissante = déport (backwardation).")
-with onglets[2]:
     jours = st.selectbox("Fenêtre ", [20, 60, 120, 250], index=1, format_func=lambda n: f"{n} séances")
     dd = sorted(f["date"].unique())[-jours:]
     st.plotly_chart(G.oi_volumes(f[f["date"].isin(dd)]), width="stretch", config=G.CFG)
@@ -63,7 +55,7 @@ with onglets[2]:
                     "| ↑ | ↓ | Rachats de positions vendeuses : hausse **fragile** |\n"
                     "| ↓ | ↑ | Nouvelles positions vendeuses : baisse **confirmée** |\n"
                     "| ↓ | ↓ | Liquidation de positions acheteuses : baisse **en fin de course** |")
-with onglets[3]:
+with onglets[2]:
     tr = db["futures_trades"]
     dd = st.selectbox("Séance", sorted(tr["date"].unique(), reverse=True), format_func=lambda t: date_courte(pd.Timestamp(t)))
     t = tr[tr["date"] == dd]
@@ -73,7 +65,7 @@ with onglets[3]:
                                      "Transactions": lambda v: nombre(v, 0)}), width="stretch", hide_index=True)
     if t.empty:
         st.caption("Aucune transaction sur cette séance.")
-with onglets[4]:
+with onglets[3]:
     c1, c2 = st.columns(2)
     with c1:
         ui.section("Position sur future")

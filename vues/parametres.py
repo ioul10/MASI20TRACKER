@@ -45,7 +45,6 @@ st.markdown(f"""
 | Grosse transaction | niveau de prix ≥ 5 M MAD et ≥ 1 M MAD par contrat |
 | Alerte de variation de l'indice | ± {C.SEUIL_ALERTE_VAR:.0%} sur une séance |
 | Tolérance du contrôle des poids | ± {C.TOLERANCE_CONTROLE_PB} pb |
-| Pondération du score de liquidité | {", ".join(f"{k} {v:.0%}" for k, v in C.POIDS_LIQUIDITE.items())} |
 
 Ces paramètres se modifient dans `src/config.py`.
 """.replace("%", " %"))
