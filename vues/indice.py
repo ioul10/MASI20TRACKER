@@ -29,9 +29,13 @@ def entete(titre: str, role: str, choix: list | None = None, key: str | None = N
     return sel or (choix[0] if choix else None)
 
 
-c = st.columns([2.4, 1.6, 2.6])
+c = st.columns([2.4, 1.6, 1.6, 1])
 periode = c[0].segmented_control("Période affichée", ["1 mois", "3 mois", "6 mois", "1 an", "Tout"], default="6 mois")
 type_mm = c[1].segmented_control("Moyennes", ["Simples", "Exponentielles"], default="Simples")
+affichage = c[2].segmented_control("MASI 20 affiché en", ["Courbe", "Chandeliers"], default="Courbe",
+                                   help="Chandeliers : ouverture = clôture de la veille (le bulletin ne publie pas "
+                                        "d'ouverture) ; sans plus haut / plus bas, la bougie n'a pas de mèches.")
+bougies = affichage == "Chandeliers"
 n = {"1 mois": 21, "3 mois": 63, "6 mois": 126, "1 an": 250}.get(periode or "6 mois", len(tech))
 vue = tech.tail(n)
 prefixe = "ema" if type_mm == "Exponentielles" else "mm"
@@ -87,7 +91,7 @@ entete("1 · Indice et moyennes mobiles 5 · 10 · 20 · 40",
 choix_mm = st.pills("Moyennes affichées", [5, 10, 20, 40], selection_mode="multi", default=[5, 10, 20, 40],
                     format_func=lambda k: f"{lib} {k}", key="mm_affichees",
                     help="Cliquez sur une moyenne pour l'afficher ou la masquer.")
-st.plotly_chart(G.indice_moyennes(vue, periodes=sorted(choix_mm or []), prefixe=prefixe), width="stretch", config=G.CFG)
+st.plotly_chart(G.indice_moyennes(vue, periodes=sorted(choix_mm or []), prefixe=prefixe, bougies=bougies), width="stretch", config=G.CFG)
 
 # ------------------------------------------------------------ 2. RSI
 rn = 5 if st.session_state.get("rsi_n") == "RSI 5" else 14
@@ -107,7 +111,7 @@ entete("2 · RSI (force relative)",
 
 **Aujourd'hui** : RSI 14 = **{nombre(z['rsi14'], 0)}** ({zone_rsi(z['rsi14'])}), RSI 5 = **{nombre(z['rsi5'], 0)}** ({zone_rsi(z['rsi5'])}).""",
        ["RSI 14", "RSI 5"], "rsi_n")
-st.plotly_chart(G.rsi_barres(vue, rn), width="stretch", config=G.CFG)
+st.plotly_chart(G.rsi_barres(vue, rn, bougies=bougies), width="stretch", config=G.CFG)
 
 # ------------------------------------------------------------ 3. ATR
 an = 5 if st.session_state.get("atr_n") == "ATR 5" else 14
@@ -130,7 +134,7 @@ entete("3 · ATR (amplitude moyenne d'une séance)",
 
 **Aujourd'hui** : ATR 14 = **{nombre(z['atr14'], 1)} pts** ({pct(z['atr14_pct'], 2, False)} de l'indice), médiane des 120 dernières séances = {nombre(med_atr, 1)} pts.""",
        ["ATR 14", "ATR 5"], "atr_n")
-st.plotly_chart(G.atr_barres(vue, an), width="stretch", config=G.CFG)
+st.plotly_chart(G.atr_barres(vue, an, bougies=bougies), width="stretch", config=G.CFG)
 if manq:
     ui.note(f"{manq} séance(s) de la période sans plus haut ni plus bas (barres pâles) : ATR estimé à partir des clôtures. "
             "Complétez-les dans la page <b>Import des bulletins → Compléter les hauts et les bas</b>.")
@@ -151,7 +155,7 @@ Plusieurs barres d'affilée hors de la bande grise = **mouvement de fond** ; un 
 **Limite** : fenêtre glissante, une seule grosse séance reste « dans » la variation pendant 5 séances.
 
 **Aujourd'hui** : **{pct(z['var_5j'])}**, régime **{regime}**.""")
-st.plotly_chart(G.var5_barres(vue), width="stretch", config=G.CFG)
+st.plotly_chart(G.var5_barres(vue, bougies=bougies), width="stretch", config=G.CFG)
 
 # ------------------------------------------------------------ tableau
 ui.section("Dernières séances")
