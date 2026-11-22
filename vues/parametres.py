@@ -42,9 +42,27 @@ st.markdown(f"""
 | Paramètre | Valeur |
 |---|---|
 | Multiplicateur des futures | {C.MULTIPLICATEUR} MAD par point |
-| Grosse transaction | niveau de prix ≥ 5 M MAD et ≥ 1 M MAD par contrat |
+| Grosse transaction · porte 1 | au moins {C.GT_P1_MONTANT / 1e6:.0f} M MAD au même prix et {C.GT_P1_PAR_CONTRAT / 1e6:.0f} M MAD par contrat |
+| Grosse transaction · porte 2 | au moins {C.GT_P2_PLANCHER / 1e6:.0f} M MAD au même prix et {C.GT_P2_MULTIPLE} × le montant habituel par contrat |
+| Montant habituel par contrat | médiane sur les {C.GT_HABITUEL_SEANCES} dernières séances échangées (au moins {C.GT_HABITUEL_MIN}) |
+| Lecture de la part des grosses transactions | normal < {C.GT_LECTURE[0]:.0%} · notable · séance dominée ≥ {C.GT_LECTURE[1]:.0%} |
 | Alerte de variation de l'indice | ± {C.SEUIL_ALERTE_VAR:.0%} sur une séance |
 | Tolérance du contrôle des poids | ± {C.TOLERANCE_CONTROLE_PB} pb |
 
 Ces paramètres se modifient dans `src/config.py`.
 """.replace("%", " %"))
+
+ui.section("Recalculer les grosses transactions")
+st.markdown("Applique la règle actuelle (portes 1 et 2) à **tous les bulletins de la cote déjà importés** "
+            "(dossier data/bulletins), dans l'ordre des dates. À lancer une fois après une mise à jour de la règle "
+            "ou de ses paramètres. Compter environ 3 secondes par bulletin.")
+if st.button("Recalculer les grosses transactions", icon=":material/refresh:"):
+    from src import importer
+    barre = st.progress(0.0, text="Lecture des bulletins…")
+    res = importer.recalculer_grosses(lambda x, nom: barre.progress(min(x, 1.0), text=f"Lecture de {nom}"))
+    barre.empty()
+    ui.vider_cache()
+    if res["bulletins"]:
+        st.success(f"{res['bulletins']} bulletin(s) relu(s) · {res['niveaux']} grosse(s) transaction(s) repérée(s).")
+    else:
+        st.warning("Aucun bulletin de la cote trouvé dans data/bulletins.")

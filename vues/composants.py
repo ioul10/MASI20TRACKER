@@ -4,6 +4,7 @@ import streamlit as st
 from src import charts as G
 from src import composants as K
 from src import config as C
+from src import grosses as GT
 from src import ui
 from src.fmt import date_courte, mad, nombre, pct
 
@@ -41,7 +42,7 @@ with onglet_seance:
              "sub": f"publiée : {pct(var_pub)}" if var_pub is not None else ""},
             {"lab": "Volume des 20 valeurs", "val": mad(b["volume"].sum()), "sub": "marché central"},
             {"lab": "Grosses transactions", "val": pct(b["volume_gros"].sum() / b["volume"].sum(), 0, False) if b["volume"].sum() else "–",
-             "sub": "du volume (niveaux ≥ 5 M MAD)"},
+             "sub": "du volume · " + GT.lecture(b["volume_gros"].sum() / b["volume"].sum() if b["volume"].sum() else None)},
             {"lab": "Marché de blocs", "val": mad(b["volume_blocs"].sum()), "sub": "exclu des volumes"},
         ])
         c1, c2 = st.columns([1.35, 1])
@@ -143,29 +144,82 @@ with onglet_volumes:
     lib = noms.get(choix, choix).title() if choix in noms else choix
     moy = v["volume"].mean()
     rec = v["volume"].tail(5 if pas != "Semaine" else 1).mean()
+    part_gros = v["volume_gros"].sum() / v["volume"].sum() if v["volume"].sum() else float("nan")
+    dern = v.iloc[-1]
+    part_dern = dern["volume_gros"] / dern["volume"] if dern["volume"] else float("nan")
     ui.kpis([{"lab": "Période des données", "val": f"{n_s} séances",
               "sub": f"du {date_courte(fl['date'].min())} au {date_courte(fl['date'].max())}"},
              {"lab": "Volume total", "val": mad(v["volume"].sum()), "sub": "marché central"},
              {"lab": f"Moyenne par {'semaine' if pas == 'Semaine' else 'séance'}", "val": mad(moy),
-              "sub": f"dont {pct(v['volume_gros'].sum() / v['volume'].sum(), 0, False) if v['volume'].sum() else '–'} en grosses transactions"},
+              "sub": f"volume courant : {mad((v['volume'] - v['volume_gros']).mean())}"},
              {"lab": "5 dernières séances" if pas != "Semaine" else "Dernière semaine", "val": mad(rec),
-              "sub": f"{pct(rec / moy - 1, 0) if moy else '–'} vs moyenne de la période", "sens": rec - moy}])
-    ui.section(f"Volume échangé · {lib}")
+              "sub": f"{pct(rec / moy - 1, 0) if moy else '–'} vs moyenne de la période", "sens": rec - moy},
+             {"lab": "Part des grosses transactions", "val": pct(part_gros, 0, False), "gold": True,
+              "sub": f"sur la période · {'dernière semaine' if pas == 'Semaine' else 'dernière séance'} : "
+                     f"{pct(part_dern, 0, False)} ({GT.lecture(part_dern)})"}])
+    a, b = st.columns([5, 1.3], vertical_alignment="bottom")
+    with a:
+        ui.section(f"Volume échangé · {lib}")
+    with b.popover("Grosse transaction ?", icon=":material/help:", width="stretch"):
+        st.markdown(f"""**Une grosse transaction** est un échange anormalement gros, passé par un ou quelques grands acteurs,
+qui gonfle le volume d'une séance sans refléter l'intérêt de l'ensemble du marché.
+
+**La règle** : chaque prix auquel une action s'est échangée dans la séance est testé. Il est « gros » s'il passe **l'une des deux portes** :
+- **porte 1** : au moins **{C.GT_P1_MONTANT / 1e6:.0f} M MAD** au même prix **et** au moins **{C.GT_P1_PAR_CONTRAT / 1e6:.0f} M MAD par contrat** ;
+- **porte 2** : au moins **{C.GT_P2_PLANCHER / 1e6:.0f} M MAD** au même prix **et** des contrats **{C.GT_P2_MULTIPLE} fois plus gros** que d'habitude pour cette valeur
+  (habituel = médiane du montant par contrat sur ses {C.GT_HABITUEL_SEANCES} dernières séances ; il en faut au moins {C.GT_HABITUEL_MIN}).
+
+**Le calcul**
+- montant des grosses transactions = **somme des montants des prix « gros »** ;
+- part des grosses transactions = montant des grosses transactions ÷ volume total ;
+- volume courant = volume total − grosses transactions.
+
+**Exemple réel** : Attijariwafa, 16/11/2026, 31,5 M MAD échangés à 17 prix. Au prix de 673,20 MAD : 26,0 M MAD en 15 contrats,
+soit 1,7 M MAD par contrat → gros. Les 16 autres prix sont normaux. Part des grosses transactions = 26,0 ÷ 31,5 = **82 %**.
+
+**Lecture** : moins de {pct(C.GT_LECTURE[0], 0, False)} = normal · de {pct(C.GT_LECTURE[0], 0, False)} à {pct(C.GT_LECTURE[1], 0, False)} = notable ·
+plus de {pct(C.GT_LECTURE[1], 0, False)} = séance dominée par une ou deux opérations.
+
+Détails et cas particuliers : fiche méthode « Les grosses transactions ».""")
     st.plotly_chart(G.volumes_evolution(v, db["masi20"]), width="stretch", config=G.CFG)
-    st.caption("Marché central uniquement (le marché de blocs est exclu). Or = niveaux de prix ≥ 5 M MAD et ≥ 1 M MAD "
-               "par contrat. Ligne foncée = MASI 20 (axe de droite). Seules les séances dont le bulletin est importé apparaissent.")
+    st.caption("Marché central uniquement (le marché de blocs est exclu). En or : les grosses transactions. "
+               "Ligne foncée = MASI 20 (axe de droite). Seules les séances dont le bulletin est importé apparaissent.")
+
+    ui.section("Les grosses transactions repérées")
+    gt = db.get("grosses", pd.DataFrame())
+    if gt is None or gt.empty:
+        st.info("Aucune grosse transaction enregistrée. Si des bulletins sont déjà importés, lancez le recalcul dans "
+                "Composition & paramètres → « Recalculer les grosses transactions ».", icon=":material/info:")
+    else:
+        if choix in noms:
+            gt = gt[gt["isin"] == choix]
+        elif choix != "Tout le marché (toutes les actions)":
+            gt = gt[gt["isin"].isin(compo_act["isin"])]
+        gt = gt.sort_values(["date", "volume"], ascending=[False, False])
+        jour = flux[flux["marche"] == "central"].groupby(["date", "isin"])["volume"].sum()
+        part_val = [g / jour.get((d, i), float("nan")) for d, i, g in zip(gt["date"], gt["isin"], gt["volume"])]
+        st.caption(f"{len(gt)} prix « gros » · {mad(gt['volume'].sum())} au total. Une ligne = un prix d'une action dans une séance.")
+        st.dataframe(ui.style_table(pd.DataFrame({
+            "Séance": gt["date"].dt.strftime("%d/%m/%Y"), "Valeur": gt["nom"].str.title(), "Prix": gt["cours"],
+            "Montant": gt["volume"], "Contrats": gt["nb"], "Par contrat": gt["par_contrat"], "Habituel": gt["habituel"],
+            "× habituel": gt["multiple"], "Porte": gt["porte"], "Part du volume de la valeur": part_val}),
+            fmt={"Prix": lambda x: nombre(x), "Montant": lambda x: mad(x), "Contrats": lambda x: nombre(x, 0),
+                 "Par contrat": lambda x: mad(x), "Habituel": lambda x: mad(x),
+                 "× habituel": lambda x: f"{nombre(x, 1)} ×", "Part du volume de la valeur": lambda x: pct(x, 0, False)}),
+            width="stretch", hide_index=True, height=min(38 * (len(gt) + 1) + 4, 420))
+        st.caption("Habituel vide : moins de 5 séances d'historique pour la valeur, seule la porte 1 s'applique.")
 
     ui.section("Les 20 valeurs sur toute la période")
     pv = K.volumes_par_valeur(fl, compo_act)
     tab = pd.DataFrame({"Valeur": pv["nom"].str.title(), "Volume total": pv["volume"], "Part": pv["part"],
                         "Moyenne / séance": pv["moyen"], "5 dern. séances": pv["recent"], "Évolution": pv["evolution"],
                         "Séances échangées": [f"{int(s)} / {pv.attrs['seances']}" for s in pv["seances_echangees"]],
-                        "Grosses trans.": pv["gros"] / pv["volume"].replace(0, float("nan")),
+                        "Part grosses trans.": pv["gros"] / pv["volume"].replace(0, float("nan")),
                         "Volume par semaine (M MAD)": pv["semaines"]})
     st.dataframe(ui.style_table(tab, pct_cols=["Évolution"],
                                 fmt={"Volume total": lambda x: mad(x), "Part": lambda x: pct(x, 1, False),
                                      "Moyenne / séance": lambda x: mad(x), "5 dern. séances": lambda x: mad(x),
-                                     "Grosses trans.": lambda x: pct(x, 0, False)}),
+                                     "Part grosses trans.": lambda x: pct(x, 0, False)}),
                  width="stretch", hide_index=True, height=38 * 21,
                  column_config={"Volume par semaine (M MAD)": st.column_config.BarChartColumn(
                      "Volume par semaine (M MAD)", help="Une barre par semaine, de la plus ancienne à la plus récente", y_min=0)})
