@@ -16,7 +16,10 @@ def indicateurs(df: pd.DataFrame) -> pd.DataFrame:
     d = df.sort_values("date").reset_index(drop=True).copy()
     c = d["cloture"].astype(float)
     d["var"] = c.pct_change()
-    d["ouverture"] = c.shift()          # le bulletin ne publie pas d'ouverture : clôture de la veille
+    # ouverture : celle importée d'un historique (Investing) si elle existe, sinon la clôture de la veille
+    o = d["ouverture"].astype(float) if "ouverture" in d else pd.Series(np.nan, index=d.index)
+    d["ouverture_connue"] = o.notna()
+    d["ouverture"] = o.fillna(c.shift())
     d["var_5j"] = c.pct_change(5)
     for n in (5, 10, 20, 40, 60):
         d[f"mm{n}"] = c.rolling(n).mean()

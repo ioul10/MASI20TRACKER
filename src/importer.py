@@ -124,23 +124,33 @@ def _fusion_masi20(new: pd.DataFrame, haut, bas) -> pd.DataFrame:
     c = row["cloture"]
     if h is not None and b is not None and pd.notna(h) and pd.notna(b) and not (b - 0.01 <= c <= h + 0.01):
         h = b = None
-    row.update({"plus_haut": h, "plus_bas": b})
+    o = prev["ouverture"].iloc[0] if len(prev) and "ouverture" in prev else None
+    if o is not None and pd.notna(o) and h is not None and b is not None and not (b - 0.01 <= o <= h + 0.01):
+        o = None
+    row.update({"plus_haut": h, "plus_bas": b, "ouverture": o})
     return pd.DataFrame([row])
 
 
 # ------------------------------------------------ plus haut / plus bas du MASI 20
-_NOMS_HAUT = ("plus haut", "plus_haut", "haut", "high", "+ haut", "+haut", "max")
-_NOMS_BAS = ("plus bas", "plus_bas", "bas", "low", "+ bas", "+bas", "min")
+# Formats acceptés : saisie en grille, Excel (ex. feuille MASI20INDEX), export « Historical Data »
+# d'Investing.com en anglais (Date, Price, Open, High, Low, Vol., Change %) ou en français
+# (Date, Dernier, Ouv., Plus Haut, Plus Bas, Vol., Variation %).
 _NOMS_DATE = ("date", "séance", "seance", "jour")
+_NOMS_CLOTURE = ("clôture", "cloture", "price", "close", "dernier", "cours")
+_NOMS_OUVERTURE = ("ouverture", "open", "ouv.", "ouv")
+_NOMS_HAUT = ("plus haut", "plus_haut", "high", "haut", "+ haut", "+haut", "max")
+_NOMS_BAS = ("plus bas", "plus_bas", "low", "bas", "+ bas", "+bas", "min")
 
 
 def _nombre_fr(x):
-    """'1 264,07' / '1264.07' / 1264.07 -> 1264.07"""
+    """'1 264,07' / '1,264.07' / '1264.07' / 1264.07 -> 1264.07"""
     if x is None or (isinstance(x, float) and pd.isna(x)):
         return None
     if isinstance(x, (int, float)):
         return float(x)
-    t = str(x).replace(" ", "").replace(" ", "").replace(" ", "")
+    t = str(x).replace("\u00a0", "").replace("\u202f", "").replace(" ", "").replace("%", "")
+    if not t or t in ("-", "–"):
+        return None
     if "," in t and "." in t:
         t = t.replace(".", "").replace(",", ".") if t.rfind(",") > t.rfind(".") else t.replace(",", "")
     else:
@@ -151,11 +161,29 @@ def _nombre_fr(x):
         return None
 
 
+def _dates(col: pd.Series, mois_d_abord: bool) -> pd.Series:
+    """Dates jj/mm/aaaa (français) ou mm/jj/aaaa (anglais, Investing). Tranche d'après les données
+    quand c'est possible (un premier nombre > 12 => jour d'abord ; un second > 12 => mois d'abord)."""
+    if pd.api.types.is_datetime64_any_dtype(col):
+        return col
+    txt = col.astype(str).str.strip()
+    parts = txt.str.extract(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})")
+    if parts.notna().all(axis=1).any():
+        p1, p2 = pd.to_numeric(parts[0], errors="coerce"), pd.to_numeric(parts[1], errors="coerce")
+        if (p1 > 12).any():
+            mois_d_abord = False
+        elif (p2 > 12).any():
+            mois_d_abord = True
+        return pd.to_datetime(txt, format="%m/%d/%Y" if mois_d_abord else "%d/%m/%Y", errors="coerce")
+    return pd.to_datetime(txt, errors="coerce")
+
+
 def lire_hauts_bas(fichier, nom: str) -> pd.DataFrame:
-    """Lit un CSV ou un Excel contenant au moins : date, plus haut, plus bas.
-    Pour un Excel, prend la première feuille qui contient ces colonnes (ex. MASI20INDEX)."""
+    """Lit un CSV ou un Excel : date, plus haut, plus bas (obligatoires), clôture et ouverture (facultatives).
+    Renvoie date, cloture_fichier, ouverture, plus_haut, plus_bas."""
     def normaliser(df: pd.DataFrame) -> pd.DataFrame | None:
         cols = {str(c).strip().lower(): c for c in df.columns}
+
         def trouver(noms):
             for n in noms:
                 if n in cols:
@@ -164,9 +192,16 @@ def lire_hauts_bas(fichier, nom: str) -> pd.DataFrame:
         d, h, b = trouver(_NOMS_DATE), trouver(_NOMS_HAUT), trouver(_NOMS_BAS)
         if d is None or h is None or b is None:
             return None
-        out = pd.DataFrame({"date": pd.to_datetime(df[d], dayfirst=True, errors="coerce"),
+        c, o = trouver(_NOMS_CLOTURE), trouver(_NOMS_OUVERTURE)
+        anglais = any(k in cols for k in ("price", "open", "high", "change %"))
+        vide = pd.Series(None, index=df.index, dtype=float)
+        out = pd.DataFrame({"date": _dates(df[d], mois_d_abord=anglais),
+                            "cloture_fichier": df[c].map(_nombre_fr) if c is not None else vide,
+                            "ouverture": df[o].map(_nombre_fr) if o is not None else vide,
                             "plus_haut": df[h].map(_nombre_fr), "plus_bas": df[b].map(_nombre_fr)})
-        return out.dropna(subset=["date"])
+        out = out.dropna(subset=["date"]).astype({"cloture_fichier": float, "ouverture": float,
+                                                  "plus_haut": float, "plus_bas": float})
+        return out.drop_duplicates("date", keep="first").sort_values("date").reset_index(drop=True)
 
     if nom.lower().endswith((".xlsx", ".xlsm", ".xls")):
         feuilles = pd.read_excel(fichier, sheet_name=None)
@@ -177,32 +212,52 @@ def lire_hauts_bas(fichier, nom: str) -> pd.DataFrame:
                 if r is not None and len(r):
                     return r
         raise ValueError("Aucune feuille avec les colonnes Date, Plus haut et Plus bas.")
-    df = pd.read_csv(fichier, sep=None, engine="python")
+    df = pd.read_csv(fichier, sep=None, engine="python", encoding="utf-8-sig")
     r = normaliser(df)
     if r is None:
-        raise ValueError("Colonnes attendues : Date, Plus haut, Plus bas.")
+        raise ValueError("Colonnes attendues : Date, Plus haut (High), Plus bas (Low).")
     return r
 
 
 def controler_hauts_bas(saisie: pd.DataFrame, masi20: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Rapproche la saisie des clôtures connues. Renvoie (lignes valides, lignes rejetées avec motif).
-    Règle : plus bas ≤ clôture ≤ plus haut (tolérance 0,01 pt)."""
-    s = saisie.dropna(subset=["plus_haut", "plus_bas"], how="all").copy()
+    """Rapproche la saisie de la base. Renvoie (lignes valides, lignes rejetées avec motif).
+    - Séance déjà en base : la clôture du bulletin est gardée ; il faut plus bas ≤ clôture ≤ plus haut.
+    - Séance absente de la base : ajoutée si le fichier donne la clôture (source « fichier ») ;
+      le bulletin, importé plus tard, remplacera la clôture et gardera haut / bas / ouverture.
+    - Ouverture (facultative) : elle doit aussi être entre le plus bas et le plus haut."""
+    s = saisie.copy()
+    for k in ("cloture_fichier", "ouverture"):
+        if k not in s:
+            s[k] = np.nan
+    s = s.dropna(subset=["plus_haut", "plus_bas"], how="all")
     s["date"] = pd.to_datetime(s["date"]).dt.normalize()
-    m = masi20[["date", "cloture", "source"]].copy()
+    m = masi20.copy()
+    if "ouverture" not in m:
+        m["ouverture"] = np.nan
+    m = m[["date", "cloture", "source", "ouverture"]].rename(columns={"ouverture": "ouverture_base"})
     m["date"] = pd.to_datetime(m["date"]).dt.normalize()
     x = s.merge(m, on="date", how="left")
+    x["nouvelle"] = x["cloture"].isna() & x["cloture_fichier"].notna()
+    x["cloture"] = x["cloture"].fillna(x["cloture_fichier"])
+    x["source"] = x["source"].where(~x["nouvelle"], "fichier")
+    x["ouverture"] = x["ouverture"].fillna(x["ouverture_base"])
+    x["ecart_cloture"] = (x["cloture_fichier"] - x["cloture"]).where(~x["nouvelle"])
+    tol = 0.01
     motif = np.select(
         [x["cloture"].isna(), x["plus_haut"].isna() | x["plus_bas"].isna(), x["plus_haut"] < x["plus_bas"],
-         x["cloture"] > x["plus_haut"] + 0.01, x["cloture"] < x["plus_bas"] - 0.01],
-        ["séance absente de la base (importez d'abord le bulletin)", "plus haut ou plus bas manquant",
-         "plus haut inférieur au plus bas", "clôture au-dessus du plus haut", "clôture en dessous du plus bas"], "")
+         x["cloture"] > x["plus_haut"] + tol, x["cloture"] < x["plus_bas"] - tol,
+         x["ouverture"].notna() & ((x["ouverture"] > x["plus_haut"] + tol) | (x["ouverture"] < x["plus_bas"] - tol))],
+        ["séance absente de la base et clôture absente du fichier", "plus haut ou plus bas manquant",
+         "plus haut inférieur au plus bas", "clôture au-dessus du plus haut", "clôture en dessous du plus bas",
+         "ouverture hors de l'intervalle plus bas – plus haut"], "")
     x["motif"] = motif
-    ok = x[x["motif"] == ""][["date", "cloture", "plus_haut", "plus_bas", "source"]]
+    ok = x[x["motif"] == ""][["date", "cloture", "ouverture", "plus_haut", "plus_bas", "source", "nouvelle",
+                              "ecart_cloture"]]
     return ok.reset_index(drop=True), x[x["motif"] != ""].reset_index(drop=True)
 
 
 def enregistrer_hauts_bas(ok: pd.DataFrame) -> int:
     if ok.empty:
         return 0
-    return store.upsert("masi20", ok, f"Plus haut / plus bas MASI 20 ({len(ok)} séances)")
+    lignes = ok[["date", "cloture", "ouverture", "plus_haut", "plus_bas", "source"]]
+    return store.upsert("masi20", lignes, f"Historique MASI 20 : plus haut / plus bas ({len(ok)} séances)")
