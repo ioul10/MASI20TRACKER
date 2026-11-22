@@ -43,7 +43,20 @@ SECTEURS = {
 }
 
 # Seuils
-SEUIL_BLOC_MAD = 5_000_000          # niveau de prix ≥ 5 M MAD = grosse transaction
+SEUIL_BLOC_MAD = 5_000_000          # (ancienne règle, conservée pour compatibilité)
+
+# Grosses transactions (fiche méthode du 22/11/2026). Un niveau de prix est une grosse transaction
+# s'il passe l'une des deux portes :
+#   porte 1 (absolue) : montant ≥ GT_P1_MONTANT et montant / contrats ≥ GT_P1_PAR_CONTRAT
+#   porte 2 (relative) : montant ≥ GT_P2_PLANCHER et montant / contrats ≥ GT_P2_MULTIPLE × habituel de la valeur
+# habituel = médiane, sur les GT_HABITUEL_SEANCES dernières séances échangées, du montant par contrat
+GT_P1_MONTANT = 5_000_000
+GT_P1_PAR_CONTRAT = 1_000_000
+GT_P2_MULTIPLE = 10
+GT_P2_PLANCHER = 1_000_000
+GT_HABITUEL_SEANCES = 20
+GT_HABITUEL_MIN = 5                 # en dessous : porte 1 seule
+GT_LECTURE = (0.15, 0.50)           # part des grosses transactions : normal / notable / séance dominée
 SEUIL_ALERTE_VAR = 0.05             # variation quotidienne de l'indice jugée anormale (5 %)
 TOLERANCE_CONTROLE_PB = 25          # écart toléré entre variation reconstituée et publiée
 

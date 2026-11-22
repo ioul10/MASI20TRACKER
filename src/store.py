@@ -24,6 +24,7 @@ TABLES = {
     "futures": ["date", "ticker"],            # cours des futures
     "futures_trades": ["date", "ticker", "cours", "quantite", "volume"],
     "composition": ["isin", "date_debut"],    # composition du MASI 20
+    "grosses": ["date", "nom", "cours"],      # grosses transactions repérées (un niveau de prix par ligne)
 }
 DATES = {"date", "date_debut", "date_fin"}
 

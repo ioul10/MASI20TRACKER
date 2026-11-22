@@ -191,7 +191,7 @@ def volumes_evolution(v: pd.DataFrame, m20: pd.DataFrame | None = None, h=440) -
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(go.Bar(x=x, y=(v["volume"] - v["volume_gros"]) / 1e6, name="Volume courant",
                          marker_color="#5B7DB1", hovertemplate="%{y:,.1f} M MAD"), secondary_y=False)
-    fig.add_trace(go.Bar(x=x, y=v["volume_gros"] / 1e6, name="Grosses transactions (≥ 5 M MAD)",
+    fig.add_trace(go.Bar(x=x, y=v["volume_gros"] / 1e6, name="Grosses transactions",
                          marker_color=C.GOLD, hovertemplate="%{y:,.1f} M MAD"), secondary_y=False)
     if "moyenne" in v:
         fig.add_trace(go.Scatter(x=x, y=v["moyenne"] / 1e6, name=v.attrs.get("lib_moyenne", "Moyenne"),

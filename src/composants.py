@@ -129,7 +129,7 @@ def poids_implicites(p: pd.DataFrame, masi20: pd.DataFrame, n_seances: int = 60)
 
 def volumes_jour(flux: pd.DataFrame, isins=None) -> pd.DataFrame:
     """Volume du marché central par séance (toutes les valeurs ou une sélection d'ISIN) :
-    date, volume, volume_gros (niveaux ≥ 5 M MAD), nb (transactions), valeurs."""
+    date, volume, volume_gros (grosses transactions, voir src/grosses.py), nb (transactions), valeurs."""
     if flux.empty:
         return pd.DataFrame(columns=["date", "volume", "volume_gros", "nb", "valeurs"])
     f = flux[flux["marche"] == "central"]

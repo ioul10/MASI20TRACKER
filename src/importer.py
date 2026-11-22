@@ -10,7 +10,8 @@ from . import config as C
 from . import store
 from .composants import composition_au, rendements_jour
 from .fmt import mad, nombre
-from .parsers import detecter_type, lire_cote, lire_futures
+from . import grosses as GT
+from .parsers import _agreger_flux, detecter_type, lire_cote, lire_futures
 
 
 @dataclass
@@ -77,7 +78,16 @@ def _analyser_cote(contenu: bytes) -> Rapport:
     non_rapproches = b.niveaux["isin"].isna().sum()
     if non_rapproches:
         rep.infos.append(f"{non_rapproches} lignes de transactions n'ont pas pu être rattachées à un code ISIN.")
-    rep.tables = {"actions": b.actions, "flux": b.flux, "indices": b.indices}
+    # 5. Grosses transactions (portes 1 et 2), avec le montant habituel tiré des séances précédentes
+    niv = GT.classer(b.niveaux, GT.habituel(store.load("flux"), d))
+    flux = _agreger_flux(niv)
+    gros = GT.table_grosses(niv)
+    cen = flux[flux["marche"] == "central"]
+    if cen["volume"].sum():
+        part = cen["volume_gros"].sum() / cen["volume"].sum()
+        rep.resume["Grosses transactions"] = (f"{len(gros)} niveau(x) de prix · {mad(gros['volume'].sum())} · "
+                                              f"{part:.0%} du marché central ({GT.lecture(part)})")
+    rep.tables = {"actions": b.actions, "flux": flux, "indices": b.indices, "grosses": gros}
     if pub is not None:
         rep.tables["masi20"] = pd.DataFrame([{"date": d, "cloture": pub["valeur"], "source": "bulletin"}])
     return rep
@@ -104,7 +114,7 @@ def enregistrer(rep: Rapport, contenu: bytes | None = None, nom_fichier: str | N
     for name, df in rep.tables.items():
         if name == "masi20":
             df = _fusion_masi20(df, haut, bas)
-        if name == "futures_trades":   # on remplace toute la séance (pas d'identifiant de transaction)
+        if name in ("futures_trades", "grosses"):   # on remplace toute la séance (pas d'identifiant unique)
             old = store.load(name)
             if not old.empty:
                 store.save(name, old[old["date"] != rep.seance])
@@ -261,3 +271,40 @@ def enregistrer_hauts_bas(ok: pd.DataFrame) -> int:
         return 0
     lignes = ok[["date", "cloture", "ouverture", "plus_haut", "plus_bas", "source"]]
     return store.upsert("masi20", lignes, f"Historique MASI 20 : plus haut / plus bas ({len(ok)} séances)")
+
+
+# ------------------------------------------------ recalcul des grosses transactions sur l'historique
+def recalculer_grosses(progression=None) -> dict:
+    """Relit tous les bulletins de la cote conservés dans data/bulletins, dans l'ordre des dates, et
+    recalcule les grosses transactions avec la règle actuelle (portes 1 et 2). Met à jour la colonne
+    volume_gros de la table flux et la table grosses. Les séances sans PDF gardent leurs valeurs."""
+    fichiers = sorted(store.BULLETINS.glob("cote_*.pdf")) if store.BULLETINS.exists() else []
+    flux = store.load("flux")
+    if not fichiers or flux.empty:
+        return {"bulletins": 0, "niveaux": 0}
+    toutes, maj = [], []
+    for i, f in enumerate(fichiers):
+        if progression:
+            progression(i / len(fichiers), f.name)
+        try:
+            b = lire_cote(f.read_bytes())
+        except Exception:
+            continue
+        d = pd.Timestamp(b.seance)
+        niv = GT.classer(b.niveaux, GT.habituel(flux, d))
+        g = _agreger_flux(niv)[["date", "isin", "marche", "volume_gros"]]
+        maj.append(g)
+        toutes.append(GT.table_grosses(niv))
+    if progression:
+        progression(1.0, "enregistrement")
+    if not maj:
+        return {"bulletins": 0, "niveaux": 0}
+    m = pd.concat(maj).dropna(subset=["isin"])
+    cle = ["date", "isin", "marche"]
+    flux = flux.merge(m.rename(columns={"volume_gros": "_nv"}), on=cle, how="left")
+    flux["volume_gros"] = flux["_nv"].where(flux["_nv"].notna(), flux["volume_gros"])
+    flux = flux.drop(columns="_nv")
+    store.save("flux", flux, "Recalcul des grosses transactions")
+    gros = pd.concat(toutes, ignore_index=True)
+    store.save("grosses", gros, "Recalcul des grosses transactions")
+    return {"bulletins": len(maj), "niveaux": len(gros), "montant": float(gros["volume"].sum())}

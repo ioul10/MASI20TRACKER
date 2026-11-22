@@ -237,8 +237,12 @@ def _agreger_flux(niv: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["date", "isin", "nom", "marche", "volume", "quantite", "nb", "vwap",
                                      "niveaux", "part_max_niveau", "volume_max_niveau", "volume_gros"])
     niv = niv.copy()
-    # « Grosse transaction » : niveau de prix ≥ 5 M MAD et ≥ 1 M MAD par contrat
-    gros = (niv["volume"] >= 5e6) & (niv["volume"] / niv["nb"].clip(lower=1) >= 1e6)
+    # « Grosse transaction » : repérée en amont par src/grosses.py (colonne « gros », portes 1 et 2).
+    # À défaut (lecture seule du bulletin, sans historique) : porte 1, ≥ 5 M MAD et ≥ 1 M MAD par contrat.
+    if "gros" in niv:
+        gros = niv["gros"].fillna(False).astype(bool)
+    else:
+        gros = (niv["marche"] == "central") & (niv["volume"] >= 5e6) & (niv["volume"] / niv["nb"].clip(lower=1) >= 1e6)
     niv["volume_gros"] = niv["volume"].where(gros, 0.0)
     g = niv.groupby(["date", "isin", "nom", "marche"], dropna=False)
     out = g.agg(volume=("volume", "sum"), quantite=("quantite", "sum"), nb=("nb", "sum"),
