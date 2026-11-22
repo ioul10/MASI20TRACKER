@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from . import composants as K
-from . import config as C
+from . import grosses as GT
 from . import futures as F
 from . import liquidite as L
 from . import store
@@ -120,7 +120,7 @@ def a_surveiller(b: pd.DataFrame) -> list[str]:
             out.append(f"{r['nom']} : clôture à moins de 2 % de son plus haut annuel.")
         if pd.notna(r.get("bas_annuel")) and r["cloture"] <= 1.02 * r["bas_annuel"]:
             out.append(f"{r['nom']} : clôture à moins de 2 % de son plus bas annuel.")
-        if pd.notna(r.get("volume_gros")) and r.get("volume", 0) and r["volume_gros"] / r["volume"] >= C.GT_LECTURE[1]:
+        if pd.notna(r.get("volume_gros")) and r.get("volume", 0) and r["volume_gros"] / r["volume"] >= GT.LECTURE[1]:
             out.append(f"{r['nom']} : {pct(r['volume_gros'] / r['volume'], 0, False)} de son volume vient de grosses transactions.")
     return out[:8]
 

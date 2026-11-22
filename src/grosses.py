@@ -13,7 +13,16 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import config as C
+from . import config as _config
+
+# Paramètres : lus dans src/config.py, avec ces valeurs par défaut si config.py n'est pas à jour.
+P1_MONTANT = getattr(_config, "GT_P1_MONTANT", 5_000_000)
+P1_PAR_CONTRAT = getattr(_config, "GT_P1_PAR_CONTRAT", 1_000_000)
+P2_MULTIPLE = getattr(_config, "GT_P2_MULTIPLE", 10)
+P2_PLANCHER = getattr(_config, "GT_P2_PLANCHER", 1_000_000)
+HABITUEL_SEANCES = getattr(_config, "GT_HABITUEL_SEANCES", 20)
+HABITUEL_MIN = getattr(_config, "GT_HABITUEL_MIN", 5)
+LECTURE = getattr(_config, "GT_LECTURE", (0.15, 0.50))
 
 
 def habituel(flux: pd.DataFrame, avant: pd.Timestamp | None = None) -> pd.DataFrame:
@@ -24,7 +33,7 @@ def habituel(flux: pd.DataFrame, avant: pd.Timestamp | None = None) -> pd.DataFr
     f = flux[(flux["marche"] == "central") & (flux["nb"] > 0) & (flux["volume"] > 0)]
     if avant is not None:
         f = f[f["date"] < pd.Timestamp(avant)]
-    f = f.sort_values("date").groupby("isin").tail(C.GT_HABITUEL_SEANCES)
+    f = f.sort_values("date").groupby("isin").tail(HABITUEL_SEANCES)
     f = f.assign(par_contrat=f["volume"] / f["nb"])
     return f.groupby("isin").agg(habituel=("par_contrat", "median"), seances=("date", "nunique")).reset_index()
 
@@ -36,11 +45,11 @@ def classer(niv: pd.DataFrame, hab: pd.DataFrame) -> pd.DataFrame:
     h = hab.set_index("isin") if not hab.empty else pd.DataFrame(columns=["habituel", "seances"])
     n["habituel"] = n["isin"].map(h["habituel"]) if len(h) else np.nan
     n["seances_habituel"] = n["isin"].map(h["seances"]).fillna(0) if len(h) else 0
-    n.loc[n["seances_habituel"] < C.GT_HABITUEL_MIN, "habituel"] = np.nan
+    n.loc[n["seances_habituel"] < HABITUEL_MIN, "habituel"] = np.nan
     n["multiple"] = n["par_contrat"] / n["habituel"]
     central = n["marche"] == "central"
-    p1 = central & (n["volume"] >= C.GT_P1_MONTANT) & (n["par_contrat"] >= C.GT_P1_PAR_CONTRAT)
-    p2 = central & n["habituel"].notna() & (n["volume"] >= C.GT_P2_PLANCHER) & (n["multiple"] >= C.GT_P2_MULTIPLE)
+    p1 = central & (n["volume"] >= P1_MONTANT) & (n["par_contrat"] >= P1_PAR_CONTRAT)
+    p2 = central & n["habituel"].notna() & (n["volume"] >= P2_PLANCHER) & (n["multiple"] >= P2_MULTIPLE)
     n["porte"] = np.select([p1 & p2, p1, p2], ["1 et 2", "1", "2"], "")
     n["gros"] = p1 | p2
     return n
@@ -49,7 +58,7 @@ def classer(niv: pd.DataFrame, hab: pd.DataFrame) -> pd.DataFrame:
 def lecture(part: float) -> str:
     if part is None or pd.isna(part):
         return "–"
-    bas, haut = C.GT_LECTURE
+    bas, haut = LECTURE
     return "normal" if part < bas else "notable" if part < haut else "séance dominée"
 
 
