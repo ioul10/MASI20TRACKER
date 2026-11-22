@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from src import config as C
+from src import grosses as GT
 from src import store, ui
 
 ui.page("Composition & paramètres", "Composition du MASI 20 (par code ISIN), flottant et plafonnement")
@@ -42,10 +43,10 @@ st.markdown(f"""
 | Paramètre | Valeur |
 |---|---|
 | Multiplicateur des futures | {C.MULTIPLICATEUR} MAD par point |
-| Grosse transaction · porte 1 | au moins {C.GT_P1_MONTANT / 1e6:.0f} M MAD au même prix et {C.GT_P1_PAR_CONTRAT / 1e6:.0f} M MAD par contrat |
-| Grosse transaction · porte 2 | au moins {C.GT_P2_PLANCHER / 1e6:.0f} M MAD au même prix et {C.GT_P2_MULTIPLE} × le montant habituel par contrat |
-| Montant habituel par contrat | médiane sur les {C.GT_HABITUEL_SEANCES} dernières séances échangées (au moins {C.GT_HABITUEL_MIN}) |
-| Lecture de la part des grosses transactions | normal < {C.GT_LECTURE[0]:.0%} · notable · séance dominée ≥ {C.GT_LECTURE[1]:.0%} |
+| Grosse transaction · porte 1 | au moins {GT.P1_MONTANT / 1e6:.0f} M MAD au même prix et {GT.P1_PAR_CONTRAT / 1e6:.0f} M MAD par contrat |
+| Grosse transaction · porte 2 | au moins {GT.P2_PLANCHER / 1e6:.0f} M MAD au même prix et {GT.P2_MULTIPLE} × le montant habituel par contrat |
+| Montant habituel par contrat | médiane sur les {GT.HABITUEL_SEANCES} dernières séances échangées (au moins {GT.HABITUEL_MIN}) |
+| Lecture de la part des grosses transactions | normal < {GT.LECTURE[0]:.0%} · notable · séance dominée ≥ {GT.LECTURE[1]:.0%} |
 | Alerte de variation de l'indice | ± {C.SEUIL_ALERTE_VAR:.0%} sur une séance |
 | Tolérance du contrôle des poids | ± {C.TOLERANCE_CONTROLE_PB} pb |
 

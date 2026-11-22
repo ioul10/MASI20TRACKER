@@ -165,9 +165,9 @@ with onglet_volumes:
 qui gonfle le volume d'une séance sans refléter l'intérêt de l'ensemble du marché.
 
 **La règle** : chaque prix auquel une action s'est échangée dans la séance est testé. Il est « gros » s'il passe **l'une des deux portes** :
-- **porte 1** : au moins **{C.GT_P1_MONTANT / 1e6:.0f} M MAD** au même prix **et** au moins **{C.GT_P1_PAR_CONTRAT / 1e6:.0f} M MAD par contrat** ;
-- **porte 2** : au moins **{C.GT_P2_PLANCHER / 1e6:.0f} M MAD** au même prix **et** des contrats **{C.GT_P2_MULTIPLE} fois plus gros** que d'habitude pour cette valeur
-  (habituel = médiane du montant par contrat sur ses {C.GT_HABITUEL_SEANCES} dernières séances ; il en faut au moins {C.GT_HABITUEL_MIN}).
+- **porte 1** : au moins **{GT.P1_MONTANT / 1e6:.0f} M MAD** au même prix **et** au moins **{GT.P1_PAR_CONTRAT / 1e6:.0f} M MAD par contrat** ;
+- **porte 2** : au moins **{GT.P2_PLANCHER / 1e6:.0f} M MAD** au même prix **et** des contrats **{GT.P2_MULTIPLE} fois plus gros** que d'habitude pour cette valeur
+  (habituel = médiane du montant par contrat sur ses {GT.HABITUEL_SEANCES} dernières séances ; il en faut au moins {GT.HABITUEL_MIN}).
 
 **Le calcul**
 - montant des grosses transactions = **somme des montants des prix « gros »** ;
@@ -177,8 +177,8 @@ qui gonfle le volume d'une séance sans refléter l'intérêt de l'ensemble du m
 **Exemple réel** : Attijariwafa, 16/11/2026, 31,5 M MAD échangés à 17 prix. Au prix de 673,20 MAD : 26,0 M MAD en 15 contrats,
 soit 1,7 M MAD par contrat → gros. Les 16 autres prix sont normaux. Part des grosses transactions = 26,0 ÷ 31,5 = **82 %**.
 
-**Lecture** : moins de {pct(C.GT_LECTURE[0], 0, False)} = normal · de {pct(C.GT_LECTURE[0], 0, False)} à {pct(C.GT_LECTURE[1], 0, False)} = notable ·
-plus de {pct(C.GT_LECTURE[1], 0, False)} = séance dominée par une ou deux opérations.
+**Lecture** : moins de {pct(GT.LECTURE[0], 0, False)} = normal · de {pct(GT.LECTURE[0], 0, False)} à {pct(GT.LECTURE[1], 0, False)} = notable ·
+plus de {pct(GT.LECTURE[1], 0, False)} = séance dominée par une ou deux opérations.
 
 Détails et cas particuliers : fiche méthode « Les grosses transactions ».""")
     st.plotly_chart(G.volumes_evolution(v, db["masi20"]), width="stretch", config=G.CFG)
