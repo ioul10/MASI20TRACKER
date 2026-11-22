@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from src import importer, store, ui
-from src.fmt import date_courte
+from src.fmt import date_courte, nombre
 
 ui.page("Import des bulletins", "Déposez les bulletins du jour : ils sont lus, contrôlés, puis enregistrés")
 
@@ -53,22 +53,40 @@ with onglet_hb:
             if not n and rejets.empty:
                 st.info("Rien à enregistrer : remplissez au moins une ligne (plus haut et plus bas).")
 
-    ui.section("2 · Import en masse depuis un fichier (Excel ou CSV)")
-    st.caption("Colonnes reconnues : Date, Plus haut (ou Haut, High), Plus bas (ou Bas, Low). Pour un Excel, la première "
-               "feuille qui contient ces colonnes est lue (par exemple MASI20INDEX). Les séances déjà complètes sont mises à "
-               "jour ; une ligne est rejetée si la clôture de la base n'est pas comprise entre le plus bas et le plus haut.")
-    fic = st.file_uploader("Fichier des plus hauts / plus bas", type=["xlsx", "xls", "csv"], key="fic_hb")
+    ui.section("2 · Import en masse depuis un fichier (Investing, Excel ou CSV)")
+    st.caption("Formats reconnus : l'export « Historical Data » d'Investing.com (Date, Price, Open, High, Low, Vol., "
+               "Change %), sa version française (Date, Dernier, Ouv., Plus Haut, Plus Bas…), ou tout fichier avec les "
+               "colonnes Date, Plus haut, Plus bas (par exemple la feuille MASI20INDEX). La clôture du bulletin reste la "
+               "référence : une ligne est rejetée si elle n'est pas comprise entre le plus bas et le plus haut. "
+               "Une séance absente de la base est ajoutée avec la clôture du fichier ; le bulletin, importé plus tard, "
+               "la remplacera en gardant le plus haut, le plus bas et l'ouverture.")
+    fic = st.file_uploader("Fichier de l'historique du MASI 20", type=["xlsx", "xls", "csv"], key="fic_hb")
     if fic is not None:
         try:
             lu = importer.lire_hauts_bas(fic, fic.name)
             ok, rejets = importer.controler_hauts_bas(lu, m20)
-            c = st.columns(3)
-            c[0].metric("Lignes lues", len(lu))
-            c[1].metric("Valides", len(ok))
-            c[2].metric("Rejetées", len(rejets))
+            nouv = int(ok["nouvelle"].sum()) if not ok.empty else 0
+            c = st.columns(4)
+            c[0].metric("Lignes lues", len(lu),
+                        help=f"du {date_courte(lu['date'].min())} au {date_courte(lu['date'].max())}" if len(lu) else None)
+            c[1].metric("Séances complétées", len(ok) - nouv, help="déjà en base : plus haut, plus bas (et ouverture) ajoutés")
+            c[2].metric("Nouvelles séances", nouv, help="absentes de la base : ajoutées avec la clôture du fichier")
+            c[3].metric("Rejetées", len(rejets))
+            if not ok.empty:
+                ecart = ok["ecart_cloture"].abs()
+                if (ecart > 0.05).any():
+                    st.warning(f"{int((ecart > 0.05).sum())} séance(s) où la clôture du fichier diffère de celle du "
+                               f"bulletin de plus de 0,05 pt (écart max {nombre(ecart.max(), 2)} pt). La clôture du "
+                               "bulletin est conservée.")
+                with st.expander("Aperçu des séances valides"):
+                    st.dataframe(pd.DataFrame({"Date": ok["date"].dt.strftime("%d/%m/%Y"),
+                                               "Clôture retenue": ok["cloture"], "Ouverture": ok["ouverture"],
+                                               "Plus haut": ok["plus_haut"], "Plus bas": ok["plus_bas"],
+                                               "Statut": ["nouvelle séance" if n else "complétée" for n in ok["nouvelle"]]}),
+                                 hide_index=True, width="stretch")
             if not rejets.empty:
                 with st.expander(f"Voir les {len(rejets)} ligne(s) rejetée(s)"):
-                    st.dataframe(pd.DataFrame({"Date": rejets["date"].dt.strftime("%d/%m/%Y"), "Clôture (base)": rejets["cloture"],
+                    st.dataframe(pd.DataFrame({"Date": rejets["date"].dt.strftime("%d/%m/%Y"), "Clôture": rejets["cloture"],
                                                "Plus haut": rejets["plus_haut"], "Plus bas": rejets["plus_bas"],
                                                "Motif": rejets["motif"]}), hide_index=True, width="stretch")
             if not ok.empty and st.button(f"Enregistrer les {len(ok)} séance(s) valides", type="primary", key="ok_fic"):
