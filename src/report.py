@@ -155,16 +155,18 @@ def html_bilan(o: dict, avis: str, auteur: str = "") -> str:
         p.append("</ul></div></div>")
 
     # Technique
-    p.append("<h2>Analyse technique du MASI 20</h2><div class='grid2'><div>")
+    p.append("<h2>Analyse technique du MASI 20</h2>")
     p.append(_table([[s["Famille"], html.escape(s["Lecture"]), s["Verdict"]] for s in o.get("signaux", [])],
-                    ["Famille", "Lecture", "Verdict"]))
-    if o.get("fib"):
-        fb = o["fib"]
-        p.append(f"<p class='note'>Fibonacci sur 120 séances : plus haut {nombre(fb['haut'])} · plus bas {nombre(fb['bas'])} "
-                 f"(tendance {fb['tendance']}).</p>")
-    p.append("</div><div>")
+                    ["Méthode", "Lecture", "Verdict"]))
     t = o["technique"].tail(90)
-    p.append(_fig(G.indice(t, ema=True, bollinger=True, rsi=True), 330))
+    p.append("<div class='grid2'><div><h3>Indice et moyennes mobiles 5 · 10 · 20 · 40</h3>")
+    p.append(_fig(G.indice_moyennes(t, h=300), 300))
+    p.append("<h3>ATR 14</h3>")
+    p.append(_fig(G.atr_barres(t, 14, h=280), 280))
+    p.append("</div><div><h3>RSI 14</h3>")
+    p.append(_fig(G.rsi_barres(t, 14, h=300), 300))
+    p.append("<h3>Variation sur 5 séances</h3>")
+    p.append(_fig(G.var5_barres(t, h=280), 280))
     p.append("</div></div>")
 
     # Avis

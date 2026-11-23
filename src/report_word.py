@@ -12,6 +12,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import matplotlib.ticker as mtick  # noqa: E402
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from docx import Document  # noqa: E402
 from docx.enum.section import WD_ORIENT  # noqa: E402
@@ -225,21 +226,42 @@ def _g_futures(fj):
 
 
 def _g_technique(t):
-    t = t.tail(90)
-    fig, (a1, a2) = plt.subplots(2, 1, figsize=(8.5, 4.2), sharex=True, gridspec_kw={"height_ratios": [3, 1]})
-    a1.fill_between(t["date"], t["bb_bas"], t["bb_haut"], color="#9AA7BD", alpha=0.15, lw=0, label="Bollinger")
-    a1.plot(t["date"], t["cloture"], color=C.NAVY, lw=1.8, label="MASI 20")
-    a1.plot(t["date"], t["ema20"], color=C.GOLD, lw=1.3, label="EMA 20")
-    a1.plot(t["date"], t["ema40"], color=C.SERIES[3], lw=1.3, label="EMA 40")
-    a1.legend(frameon=False, fontsize=8, ncol=4, loc="upper left")
+    """Quatre panneaux, comme la page Indice & technique : moyennes 5/10/20/40, RSI 14, ATR 14, variation 5 séances."""
+    t = t.tail(90).reset_index(drop=True)
+    x = t["date"]
+    fig, ax = plt.subplots(4, 1, figsize=(8.5, 9.2), sharex=True, gridspec_kw={"height_ratios": [3, 1.6, 1.6, 1.6]})
+    a1, a2, a3, a4 = ax
+    a1.plot(x, t["cloture"], color=C.NAVY, lw=1.9, label="MASI 20")
+    for k, coul in ((5, "#D98A1E"), (10, "#1BA37A"), (20, "#6250D6"), (40, "#C2477A")):
+        a1.plot(x, t[f"mm{k}"], color=coul, lw=1.1, label=f"MM {k}")
+    a1.legend(frameon=False, fontsize=8, ncol=5, loc="upper left")
+    a1.set_title("Indice et moyennes mobiles 5 · 10 · 20 · 40", fontsize=9, loc="left", color=C.NAVY)
     _fmt_axe_fr(a1)
-    a2.plot(t["date"], t["rsi14"], color=C.NAVY_2, lw=1.3)
-    for y, c in ((70, C.DOWN), (30, C.UP)):
+    w = 0.8
+    r = t["rsi14"]
+    cr = np.select([r >= 70, r >= 50, r > 30], ["#C23B3B", "#7FA7D9", "#B8C2D3"], "#12804A")
+    a2.axhspan(70, 100, color="#C23B3B", alpha=0.06, lw=0)
+    a2.axhspan(0, 30, color="#12804A", alpha=0.06, lw=0)
+    a2.bar(x, r, width=w, color=cr)
+    for y, c in ((70, C.DOWN), (50, "#8A94A6"), (30, C.UP)):
         a2.axhline(y, color=c, ls="--", lw=0.8)
     a2.set_ylim(0, 100)
     a2.set_yticks([30, 50, 70])
-    a2.set_ylabel("RSI 14")
-    a2.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d/%m"))
+    a2.set_title("RSI 14 · seuils 30 / 50 / 70", fontsize=9, loc="left", color=C.NAVY)
+    est = ~t["hl_connu"] if "hl_connu" in t else pd.Series(False, index=t.index)
+    a3.bar(x, t["atr14"], width=w, color=np.where(est, "#C9D3E6", "#5B7DB1"))
+    a3.axhline(t["atr14"].median(), color=C.GOLD, ls="--", lw=0.9)
+    a3.set_title("ATR 14 (pts) · pâle = sans plus haut / plus bas · tirets = médiane", fontsize=9, loc="left", color=C.NAVY)
+    v = t["var_5j"] * 100
+    a4.axhspan(-3, 3, color="#8A94A6", alpha=0.10, lw=0)
+    a4.bar(x, v, width=w, color=np.select([v >= 3, v <= -3], [C.UP, C.DOWN], "#B8C2D3"))
+    for y, c in ((3, C.UP), (-3, C.DOWN)):
+        a4.axhline(y, color=c, ls="--", lw=0.8)
+    a4.set_title("Variation sur 5 séances (%) · ± 3 % = BOOM / SLUMP", fontsize=9, loc="left", color=C.NAVY)
+    for a in ax:
+        a.spines[["top", "right"]].set_visible(False)
+        a.tick_params(labelsize=8)
+    a4.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d/%m"))
     fig.tight_layout()
     return fig
 
@@ -371,13 +393,8 @@ def docx_bilan(o: dict, avis: str, auteur: str = "") -> bytes:
 
     # Technique
     _titre(doc, "Analyse technique du MASI 20")
-    _table(doc, ["Famille", "Lecture", "Verdict"], [[s["Famille"], s["Lecture"], s["Verdict"]] for s in o.get("signaux", [])],
-           [2.6, 11.4, 3.0])
-    if o.get("fib"):
-        fb = o["fib"]
-        p = doc.add_paragraph()
-        _run(p, f"Fibonacci sur 120 séances : plus haut {nombre(fb['haut'])} · plus bas {nombre(fb['bas'])} · "
-                f"tendance {fb['tendance']}.", couleur=MUTED, taille=8.5)
+    _table(doc, ["Méthode", "Lecture", "Verdict"], [[s["Famille"], s["Lecture"], s["Verdict"]] for s in o.get("signaux", [])],
+           [3.0, 11.0, 3.0])
     _image(doc, _g_technique(o["technique"]))
 
     # Signature

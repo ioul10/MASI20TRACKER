@@ -91,7 +91,7 @@ def hebdo(d: pd.DataFrame) -> pd.DataFrame:
 
 
 def signaux(d: pd.DataFrame) -> list[dict]:
-    """Tableau de lecture : un verdict par famille d'indicateurs."""
+    """Tableau de lecture : un verdict par méthode (moyennes 5/10/20/40, RSI 5/14, ATR 5/14, variation 5 séances)."""
     if len(d) < 2:
         return []
     z = d.iloc[-1]
@@ -101,32 +101,35 @@ def signaux(d: pd.DataFrame) -> list[dict]:
     def add(famille, lecture, verdict):
         out.append({"Famille": famille, "Lecture": lecture, "Verdict": verdict})
 
-    if pd.notna(z.get("ema20")) and pd.notna(z.get("ema40")):
-        if c > z["ema20"] > z["ema40"]:
-            add("Tendance", f"Cours au-dessus des EMA20 ({nombre(z['ema20'], 0)}) et EMA40 ({nombre(z['ema40'], 0)})", "Haussier")
-        elif c < z["ema20"] < z["ema40"]:
-            add("Tendance", f"Cours sous les EMA20 ({nombre(z['ema20'], 0)}) et EMA40 ({nombre(z['ema40'], 0)})", "Baissier")
+    mm = {k: z.get(f"mm{k}") for k in (5, 10, 20, 40)}
+    connues = {k: v for k, v in mm.items() if pd.notna(v)}
+    if connues:
+        au = sum(c > v for v in connues.values())
+        valeurs = " · ".join(f"MM{k} {nombre(v, 0)}" for k, v in connues.items())
+        if len(connues) == 4 and mm[5] > mm[10] > mm[20] > mm[40]:
+            ordre, verdict = "rangées à la hausse", "Haussier"
+        elif len(connues) == 4 and mm[5] < mm[10] < mm[20] < mm[40]:
+            ordre, verdict = "rangées à la baisse", "Baissier"
         else:
-            add("Tendance", f"Cours entre ses moyennes (EMA20 {nombre(z['ema20'], 0)}, EMA40 {nombre(z['ema40'], 0)})", "Neutre")
+            ordre = "emmêlées"
+            verdict = "Haussier" if au == len(connues) else "Baissier" if au == 0 else "Neutre"
+        add("Moyennes mobiles", f"Indice au-dessus de {au} moyennes sur {len(connues)}, moyennes {ordre} ({valeurs})", verdict)
     if pd.notna(z.get("rsi14")):
         r = z["rsi14"]
+        r5 = z.get("rsi5")
         prev = d["rsi14"].iloc[-6] if len(d) > 6 else np.nan
-        sens = "" if pd.isna(prev) else f" (contre {prev:.0f} il y a 5 séances)"
-        if r >= 70:
-            add("Momentum", f"RSI14 à {r:.0f}{sens} : zone de surachat", "Prudence")
-        elif r <= 30:
-            add("Momentum", f"RSI14 à {r:.0f}{sens} : zone de survente", "Rebond possible")
-        else:
-            add("Momentum", f"RSI14 à {r:.0f}{sens}", "Haussier" if r > 50 else "Baissier")
-    if pd.notna(z.get("bb_pctb")):
-        p = z["bb_pctb"]
-        lec = ("au-dessus de la bande haute" if p > 1 else "sous la bande basse" if p < 0
-               else "dans la moitié haute des bandes" if p >= 0.5 else "dans la moitié basse des bandes")
-        add("Bollinger", f"%B = {nombre(p)} : cours {lec}", "Extension" if p > 1 or p < 0 else "Neutre")
-    if pd.notna(z.get("atr_pct")):
-        med = d["atr_pct"].tail(120).median()
-        etat = "élevée" if z["atr_pct"] > 1.25 * med else "faible" if z["atr_pct"] < 0.8 * med else "normale"
-        add("Volatilité", f"ATR14 = {nombre(z['atr14'], 1)} pts ({pct(z['atr_pct'], signe=False)}), volatilité {etat}", etat.capitalize())
+        lec = f"RSI 14 à {r:.0f}" + ("" if pd.isna(prev) else f" (contre {prev:.0f} il y a 5 séances)")
+        if pd.notna(r5):
+            lec += f", RSI 5 à {r5:.0f}"
+        verdict = "Surachat" if r >= 70 else "Survente" if r <= 30 else "Haussier" if r > 50 else "Baissier"
+        add("RSI", lec, verdict)
+    if pd.notna(z.get("atr14")):
+        med = d["atr14"].tail(120).median()
+        etat = "élevée" if z["atr14"] > 1.25 * med else "faible" if z["atr14"] < 0.8 * med else "normale"
+        lec = f"ATR 14 = {nombre(z['atr14'], 1)} pts ({pct(z['atr14_pct'], signe=False)} de l'indice), volatilité {etat}"
+        if pd.notna(z.get("atr5")):
+            lec += f" ; ATR 5 = {nombre(z['atr5'], 1)} pts, " + ("nervosité en hausse" if z["atr5"] > z["atr14"] else "nervosité en baisse")
+        add("ATR", lec, f"Volatilité {etat}")
     if z.get("regime"):
-        add("Régime", f"Variation sur 5 séances : {pct(z['var_5j'])}", z["regime"])
+        add("Variation 5 séances", f"{pct(z['var_5j'])} sur 5 séances (seuil ± 3 %)", z["regime"])
     return out

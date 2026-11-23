@@ -104,7 +104,7 @@ def bilan(db: dict, fin_semaine) -> dict:
     tech = T.indicateurs(m20[m20["date"] <= fin])
     out["technique"] = tech
     out["signaux"] = T.signaux(tech)
-    out["fib"] = T.fibonacci(tech) if len(tech) > 20 else None
+    out["fib"] = None          # Fibonacci retiré de l'analyse technique (méthodes : MM, RSI, ATR, variation 5 séances)
     out["etat_marche"] = etat_marche(out)
     out["avis"] = avis_auto(out)
     return out
@@ -128,9 +128,9 @@ def a_surveiller(b: pd.DataFrame) -> list[str]:
 def etat_marche(o: dict) -> str:
     v = o.get("masi20_var", 0)
     sig = {s["Famille"]: s["Verdict"] for s in o.get("signaux", [])}
-    if v >= 0.01 and sig.get("Tendance") != "Baissier":
+    if v >= 0.01 and sig.get("Moyennes mobiles") != "Baissier":
         return "Haussier"
-    if v <= -0.01 and sig.get("Tendance") != "Haussier":
+    if v <= -0.01 and sig.get("Moyennes mobiles") != "Haussier":
         return "Baissier"
     return "Neutre"
 
@@ -165,7 +165,7 @@ def avis_auto(o: dict) -> str:
         fin = (f", avec {fu['seances_sans_transaction']} séance(s) sans transaction."
                if fu["seances_sans_transaction"] else ".")
         s.append(f"Volume de la semaine sur les futures : {_fr(fu['volume_semaine'] / 1e6, 1)} M MAD{fin}")
-    mom = next((x for x in o.get("signaux", []) if x["Famille"] == "Momentum"), None)
+    mom = next((x for x in o.get("signaux", []) if x["Famille"] == "RSI"), None)
     if mom:
         s.append(f"Côté technique : {mom['Lecture']}.")
     return " ".join(s)

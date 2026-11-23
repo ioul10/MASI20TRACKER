@@ -107,14 +107,21 @@ def afficher(db: dict) -> None:
         ui.note("Aucun bulletin de la cote pour cette semaine : la partie composants et volumes n'est pas disponible.")
 
     ui.section("Analyse technique du MASI 20")
-    c1, c2 = st.columns([1, 1.2])
+    st.dataframe(pd.DataFrame(o["signaux"]).rename(columns={"Famille": "Méthode"}), width="stretch", hide_index=True,
+                 column_config={"Lecture": st.column_config.TextColumn(width="large")})
+    t = o["technique"].tail(90)
+    c1, c2 = st.columns(2)
     with c1:
-        st.dataframe(pd.DataFrame(o["signaux"]), width="stretch", hide_index=True)
-        if o.get("fib"):
-            fb = o["fib"]
-            st.caption(f"Fibonacci (120 séances) : plus haut {nombre(fb['haut'])} · plus bas {nombre(fb['bas'])} · tendance {fb['tendance']}.")
+        st.markdown("**Indice et moyennes mobiles 5 · 10 · 20 · 40**")
+        st.plotly_chart(G.indice_moyennes(t, h=320), width="stretch", config=G.CFG)
+        st.markdown("**ATR 14**")
+        st.plotly_chart(G.atr_barres(t, 14, h=300), width="stretch", config=G.CFG)
     with c2:
-        st.plotly_chart(G.indice(o["technique"].tail(90), ema=True, bollinger=True, rsi=True, h=380), width="stretch", config=G.CFG)
+        st.markdown("**RSI 14**")
+        st.plotly_chart(G.rsi_barres(t, 14, h=320), width="stretch", config=G.CFG)
+        st.markdown("**Variation sur 5 séances**")
+        st.plotly_chart(G.var5_barres(t, h=300), width="stretch", config=G.CFG)
+    st.caption("Méthodes et lecture détaillées : page Indice & technique.")
 
     ui.section("Avis DRF")
     cle = f"avis_{fin:%Y%m%d}"
