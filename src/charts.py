@@ -187,7 +187,7 @@ def volumes_evolution(v: pd.DataFrame, m20: pd.DataFrame | None = None, h=440) -
     """Volume (marché central) par séance ou par semaine : courant + grosses transactions,
     moyenne mobile, MASI 20 en ligne. Axe en catégories : seules les séances importées apparaissent."""
     hebdo = v.attrs.get("hebdo", False)
-    x = [("sem. " if hebdo else "") + d.strftime("%d/%m/%y") for d in v["date"]]
+    x = [("sem. du " + (d - pd.Timedelta(days=4)).strftime("%d/%m/%y")) if hebdo else d.strftime("%d/%m/%y") for d in v["date"]]
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(go.Bar(x=x, y=(v["volume"] - v["volume_gros"]) / 1e6, name="Volume courant",
                          marker_color="#5B7DB1", hovertemplate="%{y:,.1f} M MAD"), secondary_y=False)
@@ -442,4 +442,74 @@ def note_semaines(hist: pd.DataFrame, h=320) -> go.Figure:
     fig = _layout(fig, h, legende=False, hovermode="closest")
     fig.update_yaxes(range=[0, 105])
     fig.update_xaxes(type="category")
+    return fig
+
+
+# ------------------------------------------------- MASI, secteurs, grosses transactions
+def base100_masi(b: pd.DataFrame, h=340) -> go.Figure:
+    """MASI et MASI 20 en base 100 (première séance commune)."""
+    fig = go.Figure()
+    for col, coul, lw in (("MASI 20", C.NAVY, 2.4), ("MASI", C.GOLD, 2.0)):
+        if col in b:
+            fig.add_trace(go.Scatter(x=b["date"], y=b[col], name=col, mode="lines+markers", marker=dict(size=4),
+                                     line=dict(color=coul, width=lw), hovertemplate="%{y:.2f}"))
+    fig.add_hline(y=100, line=dict(color=C.MUTED, width=1, dash="dot"))
+    _axes_dates(fig, b["date"])
+    fig = _layout(fig, h)
+    fig.update_yaxes(tickformat=".1f", title_text=f"Base 100 au {b['date'].iloc[0]:%d/%m/%Y}" if len(b) else "")
+    return fig
+
+
+def secteurs_barres(s: pd.DataFrame, col="var", h=None) -> go.Figure:
+    """Indices sectoriels : variation de la période, barres horizontales."""
+    d = s.dropna(subset=[col]).sort_values(col)
+    v = d[col] * 100
+    fig = go.Figure(go.Bar(y=d["secteur"], x=v, orientation="h", marker_color=[C.UP if x >= 0 else C.DOWN for x in v],
+                           text=[f"{x:+.2f} %".replace(".", ",") for x in v], textposition="outside", cliponaxis=False,
+                           hovertemplate="<b>%{y}</b><br>%{x:+.2f} %<extra></extra>"))
+    fig.add_vline(x=0, line=dict(color=C.MUTED, width=1))
+    fig = _layout(fig, h or 24 * len(d) + 60, legende=False, hovermode="closest")
+    m = max(float(v.abs().max()) if len(v) else 0, 0.5) * 1.45
+    fig.update_xaxes(ticksuffix=" %", tickformat="+.1f", showgrid=True, gridcolor=C.GRID, range=[-m, m])
+    fig.update_yaxes(showgrid=False, tickfont=dict(size=11))
+    return fig
+
+
+COULEURS_PORTEE = {"Grosses transactions": "#C8A24A", "Mixte": "#E9D7A5", "Marché": "#5B7DB1", "Sans échange": "#C9D3E6"}
+
+
+def gt_mouvement(x: pd.DataFrame, h=None) -> go.Figure:
+    """Contribution de chaque valeur au MASI 20, colorée selon ce qui porte son volume."""
+    d = x.sort_values("contribution_pb")
+    fig = go.Figure()
+    for k, coul in COULEURS_PORTEE.items():
+        s = d[d["portee"] == k]
+        if s.empty:
+            continue
+        fig.add_trace(go.Bar(y=s["nom"].str.title(), x=s["contribution_pb"], orientation="h", name=k, marker_color=coul,
+                             customdata=np.c_[s["part_gt"].fillna(0) * 100, s["volume"] / 1e6],
+                             hovertemplate="<b>%{y}</b><br>Contribution : %{x:+.1f} pb<br>Grosses transactions : "
+                                           "%{customdata[0]:.0f} % du volume<br>Volume : %{customdata[1]:,.1f} M MAD<extra></extra>"))
+    fig.add_vline(x=0, line=dict(color=C.MUTED, width=1))
+    fig = _layout(fig, h or 26 * len(d) + 90, hovermode="closest")
+    fig.update_layout(barmode="relative")
+    fig.update_yaxes(categoryorder="array", categoryarray=list(d["nom"].str.title()), showgrid=False)
+    fig.update_xaxes(title_text="Contribution au MASI 20 (pb)", tickformat="+,.0f", showgrid=True, gridcolor=C.GRID)
+    return fig
+
+
+def gt_evolution(e: pd.DataFrame, h=360) -> go.Figure:
+    """Part des grosses transactions par séance : MASI 20 (barres) et tout le marché (ligne)."""
+    x = [d.strftime("%d/%m") for d in e["date"]]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=x, y=e["part_masi20"] * 100, name="MASI 20 (20 valeurs)", marker_color=C.GOLD,
+                         hovertemplate="%{y:.0f} %"))
+    fig.add_trace(go.Scatter(x=x, y=e["part_marche"] * 100, name="Tout le marché", mode="lines+markers",
+                             line=dict(color=C.NAVY, width=2), hovertemplate="%{y:.0f} %"))
+    for y, lab in ((15, "15 % · notable"), (50, "50 % · séance dominée")):
+        fig.add_hline(y=y, line=dict(color=C.MUTED, width=1, dash="dash"), annotation_text=lab,
+                      annotation_position="top left", annotation_font=dict(size=10, color=C.MUTED))
+    fig = _layout(fig, h)
+    fig.update_xaxes(type="category")
+    fig.update_yaxes(ticksuffix=" %", range=[0, 100], title_text="Part du volume")
     return fig

@@ -5,6 +5,7 @@ import streamlit as st
 
 from . import charts as G
 from . import hebdo as H
+from . import marche as M
 from . import report, report_word
 from . import ui
 from .fmt import date_courte, mad, nombre, pct
@@ -45,6 +46,32 @@ def afficher(db: dict) -> None:
               {"lab": "Volume futures", "val": mad(fu["volume_semaine"]), "sub": f"{fu['seances_sans_transaction']} séance(s) sans transaction"},
               {"lab": "Depuis le lancement", "val": f"{fu['seances_depuis_lancement']} séances", "sub": mad(fu["volume_depuis_lancement"])}]
     ui.kpis(g)
+
+    mv = o.get("masi_vision") or {}
+    if mv.get("valeur") is not None:
+        ui.section("MASI · tout le marché")
+        ui.kpis([
+            {"lab": "MASI", "val": f"{nombre(mv['valeur'])} pts", "sub": f"{pct(mv.get('var'))} sur la semaine",
+             "sens": mv.get("var"), "gold": True},
+            {"lab": "Depuis le 31/12", "val": pct(mv.get("var_ytd")), "sens": mv.get("var_ytd")},
+            {"lab": "Hausses / baisses", "val": f"{mv.get('hausses', 0)} / {mv.get('baisses', 0)}",
+             "sub": f"sur {mv.get('actions', 0)} actions cotées"},
+            {"lab": "Volume du marché", "val": mad(mv.get("volume")),
+             "sub": (f"{nombre(mv['volume_vs'], 1)} × l'habituel par séance" if pd.notna(mv.get("volume_vs")) else "marché central")},
+            {"lab": "Part du MASI 20", "val": pct(mv.get("part_masi20"), 0, False), "sub": "du volume du marché"},
+        ])
+        c1, c2 = st.columns(2)
+        with c1:
+            b100 = M.base100(db)
+            b100 = b100[b100["date"] <= fin] if not b100.empty else b100
+            if len(b100) > 1:
+                st.markdown("**MASI et MASI 20 · base 100**")
+                st.plotly_chart(G.base100_masi(b100, h=400), width="stretch", config=G.CFG)
+        with c2:
+            sect = mv.get("secteurs")
+            if sect is not None and not sect.empty:
+                st.markdown("**Indices sectoriels · variation de la semaine**")
+                st.plotly_chart(G.secteurs_barres(sect, h=max(400, 22 * len(sect) + 60)), width="stretch", config=G.CFG)
 
     if fu:
         ui.section("Marché à terme")

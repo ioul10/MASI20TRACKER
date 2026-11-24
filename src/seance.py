@@ -86,7 +86,11 @@ def phrase(o: dict) -> str:
     s = [f"Séance du {date_courte(o['date'])} : le MASI 20 termine à {nombre(o['masi20'])} pts "
          f"({_fr_signe(o['var'])}), {_fr_signe(o['var_semaine'])} depuis le début de la semaine."]
     if "masi" in o and o["masi"]["date"] == o["date"]:
-        s.append(f"Le MASI fait {nombre(o['masi']['var_veille'], 2, True)} %.")
+        mz = o["masi"]
+        t = f"Le MASI fait {nombre(mz['var_veille'], 2, True)} % à {nombre(mz['valeur'])} pts ({nombre(mz['var_ytd'], 2, True)} % depuis le 31/12)"
+        if pd.notna(o.get("volume_marche")) and o.get("cote_date") == o["date"]:
+            t += f", sur un volume de {mad(o['volume_marche'])} pour tout le marché"
+        s.append(t + ".")
     if "composants" in o and o["cote_date"] == o["date"]:
         b = o["composants"]
         haut, bas = b.iloc[0], b.iloc[-1]

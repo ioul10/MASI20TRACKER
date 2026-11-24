@@ -84,6 +84,9 @@ def html_bilan(o: dict, avis: str, auteur: str = "") -> str:
     fu = o.get("futures") or {}
     tab = fu.get("tableau", pd.DataFrame())
     k = [("MASI 20", f"{nombre(o['masi20'])} pts", f"{pct(o['masi20_var'])} sur la semaine", o["masi20_var"])]
+    mv = o.get("masi_vision") or {}
+    if mv.get("valeur") is not None:
+        k.append(("MASI", f"{nombre(mv['valeur'])} pts", f"{pct(mv.get('var'))} sur la semaine", mv.get("var")))
     for _, r in tab.iterrows():
         k.append((r["contrat"], f"{nombre(r['cloture'])} pts", f"{pct(r['var_semaine'])} · base {pct(r['base_pct'], 1)}", r["var_semaine"]))
     kp = "".join(f"<div class='kpi'><div class='l'>{a}</div><div class='v'>{b}</div><div class='s {_cls(v)}'>{c}</div></div>"
@@ -98,6 +101,7 @@ def html_bilan(o: dict, avis: str, auteur: str = "") -> str:
 
     # Vision générale
     p.append("<h2>Vision générale</h2>")
+    mv = o.get("masi_vision") or {}
     gen = [["État de marché", o.get("etat_marche", "–")],
            ["MASI (indice large)", (pct(o.get("masi_var")), o.get("masi_var"))]]
     if fu:
@@ -109,6 +113,25 @@ def html_bilan(o: dict, avis: str, auteur: str = "") -> str:
         gen += [["Hausses / baisses (20 valeurs)", f"{o['hausses']} / {o['baisses']}"],
                 ["Volume des 20 valeurs (central)", f"{mad(o['volume_masi20'])} · {pct(o['part_marche'], 0, False)} du marché"]]
     p.append(_table(gen, ["Indicateur", "Valeur"], ["", "n"]))
+
+    # MASI · tout le marché
+    if mv.get("valeur") is not None:
+        p.append("<h2>MASI · tout le marché</h2><div class='grid2'><div>")
+        lignes = [["MASI (fin de semaine)", f"{nombre(mv['valeur'])} pts"],
+                  ["Variation de la semaine", (pct(mv.get("var")), mv.get("var"))],
+                  ["Depuis le 31/12", (pct(mv.get("var_ytd")), mv.get("var_ytd"))],
+                  ["Hausses / baisses", f"{mv.get('hausses', 0)} / {mv.get('baisses', 0)} sur {mv.get('actions', 0)} actions"],
+                  ["Volume du marché (central)", mad(mv.get("volume"))],
+                  ["Part du MASI 20 dans le volume", pct(mv.get("part_masi20"), 0, False)]]
+        if pd.notna(mv.get("volume_vs")):
+            lignes.append(["Volume par séance vs habituel", f"{nombre(mv['volume_vs'], 1)} ×"])
+        p.append(_table(lignes, ["Indicateur", "Valeur"], ["", "n"]))
+        p.append("</div><div>")
+        sect = mv.get("secteurs")
+        if sect is not None and not sect.empty:
+            p.append("<h3>Indices sectoriels · variation de la semaine</h3>")
+            p.append(_fig(G.secteurs_barres(sect), max(380, 22 * len(sect) + 60)))
+        p.append("</div></div>")
 
     # Futures
     if fu:

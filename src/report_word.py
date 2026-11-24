@@ -186,6 +186,24 @@ def _g_contributions(b):
     return fig
 
 
+def _g_secteurs(s):
+    d = s.dropna(subset=["var"]).sort_values("var")
+    v = d["var"] * 100
+    fig, ax = plt.subplots(figsize=(8.5, 0.24 * len(d) + 0.8))
+    ax.barh(d["secteur"], v, color=[C.UP if x >= 0 else C.DOWN for x in v], height=0.65)
+    for y, x in enumerate(v):
+        ax.text(x + (0.05 if x >= 0 else -0.05), y, f"{x:+.2f} %".replace(".", ","), va="center",
+                ha="left" if x >= 0 else "right", fontsize=7, color=C.INK)
+    ax.axvline(0, color=C.MUTED, lw=0.8)
+    ax.grid(axis="y", visible=False)
+    ax.set_xlabel("Variation de la semaine (%)")
+    m = max(abs(v.min()), abs(v.max()), 0.5) * 1.35
+    ax.set_xlim(-m, m)
+    ax.tick_params(axis="y", labelsize=7.5)
+    fig.tight_layout()
+    return fig
+
+
 def _g_volume_poids(b):
     fig, ax = plt.subplots(figsize=(8.5, 4.2))
     x, y = b["poids"] * 100, b["part_volume"] * 100
@@ -305,6 +323,9 @@ def docx_bilan(o: dict, avis: str, auteur: str = "") -> bytes:
     fu = o.get("futures") or {}
     tab = fu.get("tableau", pd.DataFrame())
     cles = [("MASI 20", o["masi20"], o["masi20_var"], None)]
+    mv = o.get("masi_vision") or {}
+    if mv.get("valeur") is not None:
+        cles.append(("MASI", mv["valeur"], mv.get("var"), None))
     cles += [(r["contrat"], r["cloture"], r["var_semaine"], r["base_pct"]) for _, r in tab.iterrows()]
     t = doc.add_table(rows=2, cols=len(cles))
     t.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -349,6 +370,23 @@ def docx_bilan(o: dict, avis: str, auteur: str = "") -> bytes:
         gen += [["Hausses / baisses (20 valeurs)", f"{o['hausses']} / {o['baisses']}"],
                 ["Volume des 20 valeurs (marché central)", f"{mad(o['volume_masi20'])} · {pct(o['part_marche'], 0, False)} du marché"]]
     _table(doc, ["Indicateur", "Valeur"], gen, [8.5, 8.5], aligner_droite=(1,))
+
+    # MASI · tout le marché
+    if mv.get("valeur") is not None:
+        _titre(doc, "MASI · tout le marché")
+        lignes = [["MASI (fin de semaine)", f"{nombre(mv['valeur'])} pts"],
+                  ["Variation de la semaine", (pct(mv.get("var")), mv.get("var"))],
+                  ["Depuis le 31/12", (pct(mv.get("var_ytd")), mv.get("var_ytd"))],
+                  ["Hausses / baisses", f"{mv.get('hausses', 0)} / {mv.get('baisses', 0)} sur {mv.get('actions', 0)} actions"],
+                  ["Volume du marché (central)", mad(mv.get("volume"))],
+                  ["Part du MASI 20 dans le volume", pct(mv.get("part_masi20"), 0, False)]]
+        if pd.notna(mv.get("volume_vs")):
+            lignes.append(["Volume par séance vs habituel", f"{nombre(mv['volume_vs'], 1)} ×"])
+        _table(doc, ["Indicateur", "Valeur"], lignes, [8.5, 8.5], aligner_droite=(1,))
+        sect = mv.get("secteurs")
+        if sect is not None and not sect.empty:
+            _titre(doc, "Indices sectoriels · variation de la semaine")
+            _image(doc, _g_secteurs(sect), 15)
 
     # Futures
     if fu and not tab.empty:

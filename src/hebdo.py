@@ -9,6 +9,7 @@ from . import composants as K
 from . import grosses as GT
 from . import futures as F
 from . import liquidite as L
+from . import marche as M
 from . import store
 from . import technique as T
 from .fmt import date_courte, pct
@@ -53,6 +54,9 @@ def bilan(db: dict, fin_semaine) -> dict:
         elif not mw.empty:
             # à défaut de la séance précédente, on compose les variations publiées
             out["masi_var"] = float(np.prod(1 + mw["var_veille"] / 100) - 1)
+
+    # MASI et tout le marché (indices sectoriels, volume, hausses / baisses)
+    out["masi_vision"] = M.vision_masi(db, debut, fin)
 
     # Composants
     p = K.panel(db["actions"], db["composition"], debut, fin)
@@ -147,6 +151,17 @@ def avis_auto(o: dict) -> str:
     v = o["masi20_var"]
     sens = "progresse" if v > 0 else "recule" if v < 0 else "est stable"
     s.append(f"Le MASI 20 {sens} de {_fr(abs(v) * 100)} % sur la semaine, à {_fr(o['masi20'])} pts.")
+    mv = o.get("masi_vision") or {}
+    if pd.notna(mv.get("var", np.nan)):
+        t = f"Le MASI fait {_fr(mv['var'] * 100, signe=True)} % ({_fr(mv['var_ytd'] * 100, signe=True)} % depuis le 31/12)"
+        if mv.get("actions"):
+            t += f", avec {mv['hausses']} hausses et {mv['baisses']} baisses sur {mv['actions']} actions"
+        s.append(t + ".")
+        sect = mv.get("secteurs")
+        if sect is not None and len(sect) >= 2:
+            h, b_ = sect.iloc[0], sect.iloc[-1]
+            s.append(f"Côté secteurs, {h['secteur'].lower()} mène ({_fr(h['var'] * 100, signe=True)} %) et "
+                     f"{b_['secteur'].lower()} ferme la marche ({_fr(b_['var'] * 100, signe=True)} %).")
     fu = o.get("futures")
     if fu and not fu["tableau"].empty:
         t = fu["tableau"]
