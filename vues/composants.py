@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -5,6 +6,7 @@ from src import charts as G
 from src import composants as K
 from src import config as C
 from src import grosses as GT
+from src import marche as M
 from src import ui
 from src.fmt import date_courte, mad, nombre, pct
 
@@ -15,35 +17,54 @@ if act.empty:
     st.info("Aucun bulletin de la cote importé.")
     st.stop()
 dates = sorted(act["date"].unique(), reverse=True)
-ui.page("Composants", "Variations, poids, contributions et volumes des valeurs du MASI 20 et du MASI", dates[0])
+ui.page("Composants", "Indices et volumes des valeurs du MASI 20 et de tout le marché", dates[0])
 
-onglet_seance, onglet_volumes = st.tabs(["Séance / semaine", "Évolution des volumes"])
+# ------------------------------------------------------------------ choix communs aux deux onglets
+vue = st.segmented_control("Vue", ["Indices", "Volumes"], default="Indices", key="vue_compo",
+                           label_visibility="collapsed") or "Indices"
+c = st.columns([1.3, 1.2, 1])
+univers = c[0].segmented_control("Univers", ["MASI 20", "MASI (toutes les actions)"], default="MASI 20", key="univ_compo") or "MASI 20"
+d = pd.Timestamp(c[1].selectbox("Séance", dates, format_func=lambda x: date_courte(pd.Timestamp(x)), key="seance_compo"))
+fen = c[2].segmented_control("Période", ["Séance", "Semaine"], default="Séance", key="periode_compo") or "Séance"
+debut = d - pd.Timedelta(days=d.weekday()) if fen == "Semaine" else d
+libelle_periode = (f"semaine du {date_courte(debut)} au {date_courte(d)}" if fen == "Semaine"
+                   else f"séance du {date_courte(d)}")
+est20 = univers == "MASI 20"
 
-with onglet_seance:
-    c = st.columns([1, 1.3, 1])
-    univers = c[0].segmented_control("Univers", ["MASI 20", "MASI (toutes les actions)"], default="MASI 20")
-    d = c[1].selectbox("Séance", dates, format_func=lambda x: date_courte(pd.Timestamp(x)))
-    d = pd.Timestamp(d)
-    fen = c[2].segmented_control("Période", ["Séance", "Semaine"], default="Séance")
-    debut = d - pd.Timedelta(days=d.weekday()) if fen == "Semaine" else d
+p = K.panel(act, compo, debut, d)
+b = K.bilan_periode(p, flux)
+vm = M.vision_masi(db, debut, d)
+if fen == "Semaine":
+    st.caption(f"Semaine du {date_courte(debut)} au {date_courte(d)} · {p['date'].nunique()} séance(s) de bulletins disponibles")
 
-    if univers == "MASI 20":
-        p = K.panel(act, compo, debut, d)
-        b = K.bilan_periode(p, flux)
-        n_s = p["date"].nunique()
-        if fen == "Semaine":
-            st.caption(f"Semaine du {date_courte(debut)} au {date_courte(d)} · {n_s} séance(s) de bulletins disponibles")
+# toutes les actions sur la période (univers MASI)
+a = act[(act["date"] >= debut) & (act["date"] <= d)].copy()
+a["rendement"] = a["cours_ref_suivant"] / a["cours_ref"] - 1
+toutes = a.sort_values("date").groupby(["isin", "nom", "secteur_code"], as_index=False).agg(
+    rendement=("rendement", lambda s: (1 + s.fillna(0)).prod() - 1), cloture=("cours_ref_suivant", "last"),
+    nb_titres=("nb_titres", "last"), statut=("statut", "last"))
+toutes["capi"] = toutes["nb_titres"] * toutes["cloture"]
+toutes["secteur"] = toutes["secteur_code"].map(C.SECTEURS).fillna(toutes["secteur_code"])
+cen = flux[(flux["date"] >= debut) & (flux["date"] <= d) & (flux["marche"] == "central")]
+vol = cen.groupby("isin").agg(volume=("volume", "sum"), volume_gros=("volume_gros", "sum"), nb=("nb", "sum"))
+toutes = toutes.merge(vol, on="isin", how="left").fillna({"volume": 0, "volume_gros": 0, "nb": 0})
+toutes["masi20"] = toutes["isin"].isin(K.composition_au(compo, d)["isin"])
+
+# ================================================================== INDICES
+if vue == "Indices":
+    if est20:
         pub = db["indices"]
         pub = pub[(pub["indice"] == "MASI 20") & (pub["date"] >= debut) & (pub["date"] <= d)]
-        var_pub = (1 + pub["var_veille"] / 100).prod() - 1 if not pub.empty else None
+        var_pub = vm.get("var_masi20_publie")
         ui.kpis([
-            {"lab": "Hausses / baisses", "val": f"{int((b['rendement'] > 0).sum())} / {int((b['rendement'] < 0).sum())}", "sub": "sur 20 valeurs"},
-            {"lab": "Variation reconstituée", "val": pct(b["contribution"].sum()), "sens": b["contribution"].sum(),
-             "sub": f"publiée : {pct(var_pub)}" if var_pub is not None else ""},
-            {"lab": "Volume des 20 valeurs", "val": mad(b["volume"].sum()), "sub": "marché central"},
-            {"lab": "Grosses transactions", "val": pct(b["volume_gros"].sum() / b["volume"].sum(), 0, False) if b["volume"].sum() else "–",
-             "sub": "du volume · " + GT.lecture(b["volume_gros"].sum() / b["volume"].sum() if b["volume"].sum() else None)},
-            {"lab": "Marché de blocs", "val": mad(b["volume_blocs"].sum()), "sub": "exclu des volumes"},
+            {"lab": f"MASI 20 · {fen.lower()}", "val": pct(var_pub), "sens": var_pub, "gold": True,
+             "sub": f"reconstituée : {pct(b['contribution'].sum())}"},
+            {"lab": f"MASI · {fen.lower()}", "val": pct(vm.get("var")), "sens": vm.get("var"),
+             "sub": f"depuis le 31/12 : {pct(vm.get('var_ytd'))}"},
+            {"lab": "Hausses / baisses", "val": f"{int((b['rendement'] > 0).sum())} / {int((b['rendement'] < 0).sum())}",
+             "sub": "sur les 20 valeurs"},
+            {"lab": "Tire l'indice", "val": b.iloc[0]["nom"].title(), "sub": f"{nombre(b.iloc[0]['contribution_pb'], 1, True)} pb"},
+            {"lab": "Freine l'indice", "val": b.iloc[-1]["nom"].title(), "sub": f"{nombre(b.iloc[-1]['contribution_pb'], 1, True)} pb"},
         ])
         c1, c2 = st.columns([1.35, 1])
         with c1:
@@ -52,29 +73,55 @@ with onglet_seance:
         with c2:
             ui.section("Contributions à la variation de l'indice")
             st.plotly_chart(G.contributions(b, h=520), width="stretch", config=G.CFG)
-        ui.section("Détail des valeurs")
-        tab = pd.DataFrame({"Valeur": b["nom"], "Secteur": b["secteur"], "Cours": b["cloture"], "Variation": b["rendement"],
-                            "Poids": b["poids"], "Contrib. (pb)": b["contribution_pb"], "Volume": b["volume"],
-                            "Part du volume": b["part_volume"], "Vol./poids": b["volume_sur_poids"],
-                            "Haut annuel": b["haut_annuel"], "Bas annuel": b["bas_annuel"]})
-        st.dataframe(ui.style_table(tab, pct_cols=["Variation"], signe_cols=["Contrib. (pb)"],
+        ui.section(f"Variation des 20 valeurs · {libelle_periode}")
+        tab = pd.DataFrame({"Valeur": b["nom"].str.title(), "Secteur": b["secteur"], "Cours": b["cloture"],
+                            "Variation": b["rendement"], "Poids": b["poids"], "Contrib. (pb)": b["contribution_pb"],
+                            "Haut annuel": b["haut_annuel"], "Bas annuel": b["bas_annuel"],
+                            "Écart au haut annuel": b["cloture"] / b["haut_annuel"] - 1})
+        st.dataframe(ui.style_table(tab, pct_cols=["Variation", "Écart au haut annuel"], signe_cols=["Contrib. (pb)"],
                                     fmt={"Cours": lambda v: nombre(v), "Poids": lambda v: pct(v, 1, False),
-                                         "Contrib. (pb)": lambda v: nombre(v, 1, True), "Volume": lambda v: mad(v),
-                                         "Part du volume": lambda v: pct(v, 1, False), "Vol./poids": lambda v: nombre(v, 1) + "×",
+                                         "Contrib. (pb)": lambda v: nombre(v, 1, True),
                                          "Haut annuel": lambda v: nombre(v), "Bas annuel": lambda v: nombre(v)}),
-                     width="stretch", hide_index=True, height=740)
-        c1, c2 = st.columns(2)
-        with c1:
-            ui.section("Par secteur")
-            s = K.par_secteur(b)
-            st.dataframe(ui.style_table(pd.DataFrame({"Secteur": s["secteur"], "Poids": s["poids"], "Contribution (pb)": s["contribution_pb"],
-                                                      "Part du volume": s["part_volume"]}), signe_cols=["Contribution (pb)"],
-                                        fmt={"Poids": lambda v: pct(v, 1, False), "Contribution (pb)": lambda v: nombre(v, 1, True),
-                                             "Part du volume": lambda v: pct(v, 1, False)}), width="stretch", hide_index=True)
-        with c2:
-            ui.section("Où va l'argent")
-            st.plotly_chart(G.volume_poids(b, h=380), width="stretch", config=G.CFG)
+                     width="stretch", hide_index=True, height=38 * 21)
+        ui.section("Les secteurs dans le MASI 20")
+        s = K.par_secteur(b)
+        st.dataframe(ui.style_table(pd.DataFrame({"Secteur": s["secteur"], "Poids": s["poids"],
+                                                  "Contribution (pb)": s["contribution_pb"]}), signe_cols=["Contribution (pb)"],
+                                    fmt={"Poids": lambda v: pct(v, 1, False), "Contribution (pb)": lambda v: nombre(v, 1, True)}),
+                     width="stretch", hide_index=True)
+    else:
+        ui.kpis([{"lab": f"MASI · {fen.lower()}", "val": pct(vm.get("var")), "sens": vm.get("var"), "gold": True,
+                  "sub": f"{nombre(vm.get('valeur'))} pts · depuis le 31/12 : {pct(vm.get('var_ytd'))}"},
+                 {"lab": f"MASI 20 · {fen.lower()}", "val": pct(vm.get("var_masi20_publie")), "sens": vm.get("var_masi20_publie")},
+                 {"lab": "Actions cotées", "val": str(len(toutes)), "sub": "dans le bulletin"},
+                 {"lab": "Hausses / baisses", "val": f"{int((toutes['rendement'] > 0).sum())} / {int((toutes['rendement'] < 0).sum())}",
+                  "sub": f"{int((toutes['rendement'] == 0).sum())} inchangées"}])
+        ui.section("Carte du marché (surface = capitalisation, couleur = variation)")
+        st.plotly_chart(G.carte_composants(toutes, taille="capi", h=620), width="stretch", config=G.CFG)
+        ui.section(f"Toutes les actions · {libelle_periode}")
+        tab = pd.DataFrame({"Valeur": toutes["nom"], "MASI 20": toutes["masi20"].map({True: "●", False: ""}),
+                            "Secteur": toutes["secteur"], "Cours": toutes["cloture"], "Variation": toutes["rendement"],
+                            "Capitalisation": toutes["capi"], "Statut": toutes["statut"]}).sort_values("Variation", ascending=False)
+        st.dataframe(ui.style_table(tab, pct_cols=["Variation"], fmt={"Cours": lambda v: nombre(v), "Capitalisation": lambda v: mad(v)}),
+                     width="stretch", hide_index=True, height=600)
 
+    # indices sectoriels publiés (les mêmes pour les deux univers)
+    sect = vm.get("secteurs", pd.DataFrame())
+    ui.section(f"Indices sectoriels · {libelle_periode}")
+    if sect is None or sect.empty:
+        st.info("Aucun indice sectoriel dans les bulletins importés.")
+    else:
+        c1, c2 = st.columns([1.2, 1])
+        with c1:
+            st.plotly_chart(G.secteurs_barres(sect), width="stretch", config=G.CFG)
+        with c2:
+            st.dataframe(ui.style_table(pd.DataFrame({"Secteur": sect["secteur"], "Valeur": sect["valeur"],
+                                                      fen: sect["var"], "Depuis le 31/12": sect["var_ytd"]}),
+                                        pct_cols=[fen, "Depuis le 31/12"], fmt={"Valeur": lambda v: nombre(v)}),
+                         width="stretch", hide_index=True, height=24 * len(sect) + 80)
+        st.caption("Indices sectoriels publiés par la Bourse de Casablanca dans le bulletin de la cote.")
+
+    if est20:
         with st.expander("Contrôle des poids : poids implicites calibrés sur l'indice publié"):
             st.write("Les poids affichés sont approchés : nombre de titres × cours × facteur de flottant (table de composition). "
                      "Cette calibration cherche les poids qui reproduisent le mieux les variations publiées du MASI 20 ; "
@@ -89,49 +136,59 @@ with onglet_seance:
                 st.caption(f"Calibré sur {n} séances · erreur moyenne {nombre(rmse, 1)} pb par séance. "
                            "Un ratio nettement inférieur à 1 suggère un flottant réduit.")
                 st.dataframe(comp, width="stretch", hide_index=True)
-    else:
-        a = act[(act["date"] >= debut) & (act["date"] <= d)].copy()
-        a["rendement"] = a["cours_ref_suivant"] / a["cours_ref"] - 1
-        g = a.sort_values("date").groupby(["isin", "nom", "secteur_code"], as_index=False).agg(
-            rendement=("rendement", lambda s: (1 + s.fillna(0)).prod() - 1), cloture=("cours_ref_suivant", "last"),
-            capi=("nb_titres", "last"), cours=("cours_ref_suivant", "last"), statut=("statut", "last"))
-        g["capi"] = g["capi"] * g["cours"]
-        g["secteur"] = g["secteur_code"].map(C.SECTEURS).fillna(g["secteur_code"])
-        v = flux[(flux["date"] >= debut) & (flux["date"] <= d) & (flux["marche"] == "central")].groupby("isin")["volume"].sum()
-        g["volume"] = g["isin"].map(v).fillna(0)
-        g["masi20"] = g["isin"].isin(K.composition_au(compo, d)["isin"])
-        ui.kpis([{"lab": "Actions cotées", "val": str(len(g)), "sub": "dans le bulletin"},
-                 {"lab": "Hausses / baisses", "val": f"{int((g['rendement'] > 0).sum())} / {int((g['rendement'] < 0).sum())}",
-                  "sub": f"{int((g['rendement'] == 0).sum())} inchangées"},
-                 {"lab": "Volume (central)", "val": mad(g["volume"].sum()), "sub": "toutes actions"},
-                 {"lab": "Part du MASI 20", "val": pct(g.loc[g["masi20"], "volume"].sum() / g["volume"].sum(), 0, False) if g["volume"].sum() else "–",
-                  "sub": "du volume"}])
-        ui.section("Carte du marché (surface = capitalisation, couleur = variation)")
-        st.plotly_chart(G.carte_composants(g, taille="capi", h=620), width="stretch", config=G.CFG)
-        ui.section("Toutes les actions")
-        tab = pd.DataFrame({"Valeur": g["nom"], "MASI 20": g["masi20"].map({True: "●", False: ""}), "Secteur": g["secteur"],
-                            "Cours": g["cloture"], "Variation": g["rendement"], "Capitalisation": g["capi"], "Volume": g["volume"],
-                            "Statut": g["statut"]}).sort_values("Variation", ascending=False)
-        st.dataframe(ui.style_table(tab, pct_cols=["Variation"], fmt={"Cours": lambda v: nombre(v), "Capitalisation": lambda v: mad(v),
-                                                                      "Volume": lambda v: mad(v)}),
-                     width="stretch", hide_index=True, height=700)
 
-with onglet_volumes:
+# ================================================================== VOLUMES
+else:
+    # volume habituel : moyenne par séance des 20 séances précédant la période
+    tous_jours = sorted(flux.loc[flux["marche"] == "central", "date"].unique())
+    avant = [x for x in tous_jours if x < debut][-20:]
+    n_per = cen["date"].nunique()
+    prec = flux[(flux["marche"] == "central") & flux["date"].isin(avant)].groupby("isin")["volume"].sum() / max(len(avant), 1)
+
+    if est20:
+        base = b.copy()
+        base["volume_gros"] = base["volume_gros"].fillna(0)
+        v20, g20 = base["volume"].sum(), base["volume_gros"].sum()
+        prec20 = prec.reindex(base["isin"]).fillna(0).sum()
+        vs = (v20 / n_per) / prec20 if prec20 and n_per else np.nan
+        ui.kpis([
+            {"lab": f"Volume des 20 valeurs · {fen.lower()}", "val": mad(v20), "gold": True,
+             "sub": f"{pct(v20 / vm['volume'], 0, False)} du marché central" if vm.get("volume") else "marché central"},
+            {"lab": "Par rapport à l'habituel", "val": f"{nombre(vs, 1)} ×" if pd.notna(vs) else "–",
+             "sub": f"volume par séance vs moyenne des {len(avant)} séances précédentes"},
+            {"lab": "Volume courant", "val": mad(v20 - g20), "sub": "hors grosses transactions"},
+            {"lab": "Grosses transactions", "val": pct(g20 / v20, 0, False) if v20 else "–",
+             "sub": GT.lecture(g20 / v20 if v20 else None) + " · détail : page Grosses transactions"},
+            {"lab": "Marché de blocs", "val": mad(base["volume_blocs"].sum()), "sub": "exclu des volumes"},
+        ])
+    else:
+        vs = vm.get("volume_vs")
+        ui.kpis([
+            {"lab": f"Volume du marché · {fen.lower()}", "val": mad(vm.get("volume")), "gold": True, "sub": "marché central, toutes les actions"},
+            {"lab": "Par rapport à l'habituel", "val": f"{nombre(vs, 1)} ×" if pd.notna(vs) else "–",
+             "sub": "volume par séance vs moyenne des 20 séances précédentes"},
+            {"lab": "Part du MASI 20", "val": pct(vm.get("part_masi20"), 0, False), "sub": "du volume du marché"},
+            {"lab": "Grosses transactions", "val": pct(vm.get("part_gros"), 0, False), "sub": GT.lecture(vm.get("part_gros"))},
+            {"lab": "Actions échangées", "val": f"{int((toutes['volume'] > 0).sum())} / {len(toutes)}", "sub": "au moins un échange"},
+        ])
+
+    # ---- évolution sur toute la période des données
     compo_act = K.composition_au(compo, dates[0])
     noms = dict(zip(compo_act["isin"], compo_act["nom"]))
-    fl = flux
-    n_s = fl["date"].nunique()
-    c = st.columns([2, 1.2, 1.2])
-    choix = c[0].selectbox("Valeurs", ["Les 20 valeurs du MASI 20", "Tout le marché (toutes les actions)"] + list(noms),
-                           format_func=lambda k: noms.get(k, k).title() if k in noms else k)
-    pas = c[1].segmented_control("Pas", ["Séance", "Semaine"], default="Séance", key="pas_vol")
+    defaut = "Les 20 valeurs du MASI 20" if est20 else "Tout le marché (toutes les actions)"
+    options = [defaut] + [o for o in ["Les 20 valeurs du MASI 20", "Tout le marché (toutes les actions)"] if o != defaut] + list(noms)
+    a1, a2 = st.columns([3, 2], vertical_alignment="bottom")
+    with a1:
+        ui.section("Évolution du volume sur toute la période des données")
+    choix = a2.selectbox("Valeurs", options, format_func=lambda k: noms.get(k, k).title() if k in noms else k,
+                         label_visibility="collapsed")
     if choix == "Tout le marché (toutes les actions)":
-        v = K.volumes_jour(fl)
+        v = K.volumes_jour(flux)
     elif choix in noms:
-        v = K.volumes_jour(fl, [choix])
+        v = K.volumes_jour(flux, [choix])
     else:
-        v = K.volumes_jour(fl, compo_act["isin"])
-    if pas == "Semaine":
+        v = K.volumes_jour(flux, compo_act["isin"])
+    if fen == "Semaine":
         nbj = v.set_index("date")["volume"].resample("W-FRI").count()
         v = v.set_index("date")[["volume", "volume_gros", "nb"]].resample("W-FRI").sum()
         v["seances"] = nbj
@@ -141,88 +198,64 @@ with onglet_volumes:
     else:
         v["moyenne"] = v["volume"].rolling(5, min_periods=1).mean()
         v.attrs["lib_moyenne"] = "Moyenne 5 séances"
-    lib = noms.get(choix, choix).title() if choix in noms else choix
-    moy = v["volume"].mean()
-    rec = v["volume"].tail(5 if pas != "Semaine" else 1).mean()
-    part_gros = v["volume_gros"].sum() / v["volume"].sum() if v["volume"].sum() else float("nan")
-    dern = v.iloc[-1]
-    part_dern = dern["volume_gros"] / dern["volume"] if dern["volume"] else float("nan")
-    ui.kpis([{"lab": "Période des données", "val": f"{n_s} séances",
-              "sub": f"du {date_courte(fl['date'].min())} au {date_courte(fl['date'].max())}"},
-             {"lab": "Volume total", "val": mad(v["volume"].sum()), "sub": "marché central"},
-             {"lab": f"Moyenne par {'semaine' if pas == 'Semaine' else 'séance'}", "val": mad(moy),
-              "sub": f"volume courant : {mad((v['volume'] - v['volume_gros']).mean())}"},
-             {"lab": "5 dernières séances" if pas != "Semaine" else "Dernière semaine", "val": mad(rec),
-              "sub": f"{pct(rec / moy - 1, 0) if moy else '–'} vs moyenne de la période", "sens": rec - moy},
-             {"lab": "Part des grosses transactions", "val": pct(part_gros, 0, False), "gold": True,
-              "sub": f"sur la période · {'dernière semaine' if pas == 'Semaine' else 'dernière séance'} : "
-                     f"{pct(part_dern, 0, False)} ({GT.lecture(part_dern)})"}])
-    a, b = st.columns([5, 1.3], vertical_alignment="bottom")
-    with a:
-        ui.section(f"Volume échangé · {lib}")
-    with b.popover("Grosse transaction ?", icon=":material/help:", width="stretch"):
-        st.markdown(f"""**Une grosse transaction** est un échange anormalement gros, passé par un ou quelques grands acteurs,
-qui gonfle le volume d'une séance sans refléter l'intérêt de l'ensemble du marché.
-
-**La règle** : chaque prix auquel une action s'est échangée dans la séance est testé. Il est « gros » s'il passe **l'une des deux portes** :
-- **porte 1** : au moins **{GT.P1_MONTANT / 1e6:.0f} M MAD** au même prix **et** au moins **{GT.P1_PAR_CONTRAT / 1e6:.0f} M MAD par contrat** ;
-- **porte 2** : au moins **{GT.P2_PLANCHER / 1e6:.0f} M MAD** au même prix **et** des contrats **{GT.P2_MULTIPLE} fois plus gros** que d'habitude pour cette valeur
-  (habituel = médiane du montant par contrat sur ses {GT.HABITUEL_SEANCES} dernières séances ; il en faut au moins {GT.HABITUEL_MIN}).
-
-**Le calcul**
-- montant des grosses transactions = **somme des montants des prix « gros »** ;
-- part des grosses transactions = montant des grosses transactions ÷ volume total ;
-- volume courant = volume total − grosses transactions.
-
-**Exemple réel** : Attijariwafa, 16/11/2026, 31,5 M MAD échangés à 17 prix. Au prix de 673,20 MAD : 26,0 M MAD en 15 contrats,
-soit 1,7 M MAD par contrat → gros. Les 16 autres prix sont normaux. Part des grosses transactions = 26,0 ÷ 31,5 = **82 %**.
-
-**Lecture** : moins de {pct(GT.LECTURE[0], 0, False)} = normal · de {pct(GT.LECTURE[0], 0, False)} à {pct(GT.LECTURE[1], 0, False)} = notable ·
-plus de {pct(GT.LECTURE[1], 0, False)} = séance dominée par une ou deux opérations.
-
-Détails et cas particuliers : fiche méthode « Les grosses transactions ».""")
     st.plotly_chart(G.volumes_evolution(v, db["masi20"]), width="stretch", config=G.CFG)
-    st.caption("Marché central uniquement (le marché de blocs est exclu). En or : les grosses transactions. "
-               "Ligne foncée = MASI 20 (axe de droite). Seules les séances dont le bulletin est importé apparaissent.")
+    st.caption(f"Une barre par {'semaine' if fen == 'Semaine' else 'séance'} · marché central (blocs exclus) · "
+               "en or : les grosses transactions · ligne foncée : MASI 20 (axe de droite).")
 
-    ui.section("Les grosses transactions repérées")
-    gt = db.get("grosses", pd.DataFrame())
-    if gt is None or gt.empty:
-        st.info("Aucune grosse transaction enregistrée. Si des bulletins sont déjà importés, lancez le recalcul dans "
-                "Composition & paramètres → « Recalculer les grosses transactions ».", icon=":material/info:")
+    # ---- par valeur sur la période choisie
+    if est20:
+        ui.section(f"Volume par valeur · {libelle_periode}")
+        x = base.sort_values("volume", ascending=False)
+        x["habituel"] = x["isin"].map(prec).fillna(0)
+        x["vs"] = np.where(x["habituel"] > 0, (x["volume"] / max(n_per, 1)) / x["habituel"].where(x["habituel"] > 0), np.nan)
+        pv = K.volumes_par_valeur(flux, compo_act).set_index("isin")["semaines"]
+        tab = pd.DataFrame({"Valeur": x["nom"].str.title(), "Variation": x["rendement"], "Volume": x["volume"],
+                            "Part des 20": x["part_volume"], "Poids": x["poids"], "Vol./poids": x["volume_sur_poids"],
+                            "vs habituel": x["vs"], "Grosses trans.": x["volume_gros"] / x["volume"].where(x["volume"] > 0),
+                            "Contrats": x["nb"], "Volume par semaine (M MAD)": x["isin"].map(pv)})
+        st.dataframe(ui.style_table(tab, pct_cols=["Variation"],
+                                    fmt={"Volume": lambda v: mad(v), "Part des 20": lambda v: pct(v, 1, False),
+                                         "Poids": lambda v: pct(v, 1, False), "Vol./poids": lambda v: nombre(v, 1) + " ×",
+                                         "vs habituel": lambda v: nombre(v, 1) + " ×",
+                                         "Grosses trans.": lambda v: pct(v, 0, False), "Contrats": lambda v: nombre(v, 0)}),
+                     width="stretch", hide_index=True, height=38 * 21,
+                     column_config={"Volume par semaine (M MAD)": st.column_config.BarChartColumn(
+                         "Volume par semaine (M MAD)", help="Toute la période des données, une barre par semaine", y_min=0)})
+        st.caption("Vol./poids = part du volume ÷ poids dans l'indice (1 × = la valeur s'échange en proportion de son poids). "
+                   f"vs habituel = volume par séance de la période ÷ moyenne par séance des {len(avant)} séances précédentes.")
+        c1, c2 = st.columns(2)
+        with c1:
+            ui.section("Où va l'argent : volume et poids")
+            st.plotly_chart(G.volume_poids(base, h=400), width="stretch", config=G.CFG)
+        with c2:
+            ui.section("Volume par secteur")
+            s = K.par_secteur(base)
+            st.dataframe(ui.style_table(pd.DataFrame({"Secteur": s["secteur"], "Poids": s["poids"],
+                                                      "Part du volume": s["part_volume"]}),
+                                        fmt={"Poids": lambda v: pct(v, 1, False), "Part du volume": lambda v: pct(v, 1, False)}),
+                         width="stretch", hide_index=True)
     else:
-        if choix in noms:
-            gt = gt[gt["isin"] == choix]
-        elif choix != "Tout le marché (toutes les actions)":
-            gt = gt[gt["isin"].isin(compo_act["isin"])]
-        gt = gt.sort_values(["date", "volume"], ascending=[False, False])
-        jour = flux[flux["marche"] == "central"].groupby(["date", "isin"])["volume"].sum()
-        part_val = [g / jour.get((d, i), float("nan")) for d, i, g in zip(gt["date"], gt["isin"], gt["volume"])]
-        st.caption(f"{len(gt)} prix « gros » · {mad(gt['volume'].sum())} au total. Une ligne = un prix d'une action dans une séance.")
-        st.dataframe(ui.style_table(pd.DataFrame({
-            "Séance": gt["date"].dt.strftime("%d/%m/%Y"), "Valeur": gt["nom"].str.title(), "Prix": gt["cours"],
-            "Montant": gt["volume"], "Contrats": gt["nb"], "Par contrat": gt["par_contrat"], "Habituel": gt["habituel"],
-            "× habituel": gt["multiple"], "Porte": gt["porte"], "Part du volume de la valeur": part_val}),
-            fmt={"Prix": lambda x: nombre(x), "Montant": lambda x: mad(x), "Contrats": lambda x: nombre(x, 0),
-                 "Par contrat": lambda x: mad(x), "Habituel": lambda x: mad(x),
-                 "× habituel": lambda x: f"{nombre(x, 1)} ×", "Part du volume de la valeur": lambda x: pct(x, 0, False)}),
-            width="stretch", hide_index=True, height=min(38 * (len(gt) + 1) + 4, 420))
-        st.caption("Habituel vide : moins de 5 séances d'historique pour la valeur, seule la porte 1 s'applique.")
-
-    ui.section("Les 20 valeurs sur toute la période")
-    pv = K.volumes_par_valeur(fl, compo_act)
-    tab = pd.DataFrame({"Valeur": pv["nom"].str.title(), "Volume total": pv["volume"], "Part": pv["part"],
-                        "Moyenne / séance": pv["moyen"], "5 dern. séances": pv["recent"], "Évolution": pv["evolution"],
-                        "Séances échangées": [f"{int(s)} / {pv.attrs['seances']}" for s in pv["seances_echangees"]],
-                        "Part grosses trans.": pv["gros"] / pv["volume"].replace(0, float("nan")),
-                        "Volume par semaine (M MAD)": pv["semaines"]})
-    st.dataframe(ui.style_table(tab, pct_cols=["Évolution"],
-                                fmt={"Volume total": lambda x: mad(x), "Part": lambda x: pct(x, 1, False),
-                                     "Moyenne / séance": lambda x: mad(x), "5 dern. séances": lambda x: mad(x),
-                                     "Part grosses trans.": lambda x: pct(x, 0, False)}),
-                 width="stretch", hide_index=True, height=38 * 21,
-                 column_config={"Volume par semaine (M MAD)": st.column_config.BarChartColumn(
-                     "Volume par semaine (M MAD)", help="Une barre par semaine, de la plus ancienne à la plus récente", y_min=0)})
-    st.caption("Évolution = moyenne des 5 dernières séances comparée à la moyenne par séance de toute la période.")
+        ui.section(f"Les actions les plus échangées · {libelle_periode}")
+        x = toutes.sort_values("volume", ascending=False)
+        x = x[x["volume"] > 0]
+        tot = x["volume"].sum()
+        x["habituel"] = x["isin"].map(prec).fillna(0)
+        x["vs"] = np.where(x["habituel"] > 0, (x["volume"] / max(n_per, 1)) / x["habituel"].where(x["habituel"] > 0), np.nan)
+        tab = pd.DataFrame({"Valeur": x["nom"].str.title(), "MASI 20": x["masi20"].map({True: "●", False: ""}),
+                            "Secteur": x["secteur"], "Variation": x["rendement"], "Volume": x["volume"],
+                            "Part du marché": x["volume"] / tot if tot else np.nan, "vs habituel": x["vs"],
+                            "Grosses trans.": x["volume_gros"] / x["volume"], "Contrats": x["nb"]})
+        st.dataframe(ui.style_table(tab, pct_cols=["Variation"],
+                                    fmt={"Volume": lambda v: mad(v), "Part du marché": lambda v: pct(v, 1, False),
+                                         "vs habituel": lambda v: nombre(v, 1) + " ×", "Grosses trans.": lambda v: pct(v, 0, False),
+                                         "Contrats": lambda v: nombre(v, 0)}),
+                     width="stretch", hide_index=True, height=600)
+        ui.section("Volume par secteur (toutes les actions)")
+        sv = x.groupby("secteur", as_index=False).agg(volume=("volume", "sum"), valeurs=("isin", "count")).sort_values("volume", ascending=False)
+        sv["part"] = sv["volume"] / tot if tot else np.nan
+        st.dataframe(ui.style_table(pd.DataFrame({"Secteur": sv["secteur"], "Volume": sv["volume"], "Part du marché": sv["part"],
+                                                  "Actions échangées": sv["valeurs"]}),
+                                    fmt={"Volume": lambda v: mad(v), "Part du marché": lambda v: pct(v, 1, False)}),
+                     width="stretch", hide_index=True)
 
 ui.pied()

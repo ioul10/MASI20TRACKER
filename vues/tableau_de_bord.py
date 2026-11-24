@@ -4,6 +4,7 @@ import streamlit as st
 from src import charts as G
 from src import futures as F
 from src import grosses as GT
+from src import marche as M
 from src import seance as S
 from src import ui, vue_semaine
 from src.fmt import date_courte, mad, nombre, pct
@@ -24,16 +25,12 @@ with onglet_seance:
                 unsafe_allow_html=True)
 
     # ---------------------------------------------------------------- spot
-    ui.section("Marché spot")
+    ui.section("MASI 20")
     items = [{"lab": f"MASI 20 · {date_courte(o['date'])}", "val": nombre(o["masi20"]), "sub": f"{pct(o['var'])} sur la séance",
               "sens": o["var"], "gold": True},
              {"lab": "Semaine en cours", "val": pct(o["var_semaine"]), "sub": "depuis la clôture de la semaine précédente",
               "sens": o["var_semaine"]},
              {"lab": "Depuis le 1er janvier", "val": pct(o["var_ytd"]), "sens": o["var_ytd"]}]
-    if "masi" in o:
-        mz = o["masi"]
-        items.append({"lab": f"MASI · {date_courte(mz['date'])}", "val": nombre(mz["valeur"]),
-                      "sub": f"{nombre(mz['var_veille'], 2, True)} % sur la séance", "sens": mz["var_veille"]})
     if "composants" in o:
         items += [{"lab": "Hausses / baisses", "val": f"{o['hausses']} / {o['baisses']}", "sub": "sur les 20 valeurs"},
                   {"lab": "Volume des 20 valeurs", "val": mad(o["volume20"]),
@@ -44,6 +41,37 @@ with onglet_seance:
     if "cote_date" in o and o["cote_date"] != o["date"]:
         ui.note(f"Dernier bulletin de la cote importé : {date_courte(o['cote_date'])}. Les composants et les volumes portent "
                 f"sur cette séance ; l'indice va jusqu'au {date_courte(o['date'])}.")
+
+    # ---------------------------------------------------------------- MASI · tout le marché
+    if "masi" in o:
+        dm = o["masi"]["date"]
+        jour_m = M.vision_masi(db, dm, dm)
+        sem_m = M.vision_masi(db, dm - pd.Timedelta(days=dm.weekday()), dm)
+        ui.section(f"MASI · tout le marché · {date_courte(dm)}")
+        ui.kpis([
+            {"lab": "MASI", "val": nombre(jour_m.get("valeur")), "sub": f"{pct(jour_m.get('var_jour'))} sur la séance",
+             "sens": jour_m.get("var_jour"), "gold": True},
+            {"lab": "Semaine en cours", "val": pct(sem_m.get("var")), "sens": sem_m.get("var"),
+             "sub": f"MASI 20 : {pct(sem_m.get('var_masi20_publie'))}"},
+            {"lab": "Depuis le 31/12", "val": pct(jour_m.get("var_ytd")), "sens": jour_m.get("var_ytd")},
+            {"lab": "Hausses / baisses", "val": f"{jour_m.get('hausses', 0)} / {jour_m.get('baisses', 0)}",
+             "sub": f"sur {jour_m.get('actions', 0)} actions cotées"},
+            {"lab": "Volume du marché", "val": mad(jour_m.get("volume")),
+             "sub": (f"{nombre(jour_m['volume_vs'], 1)} × l'habituel · " if pd.notna(jour_m.get("volume_vs")) else "")
+                    + f"MASI 20 : {pct(jour_m.get('part_masi20'), 0, False)}"},
+        ])
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            b100 = M.base100(db)
+            if not b100.empty:
+                ui.section("MASI et MASI 20 · base 100")
+                st.plotly_chart(G.base100_masi(b100, h=380), width="stretch", config=G.CFG)
+        with c2:
+            sect = jour_m.get("secteurs", pd.DataFrame())
+            if sect is not None and not sect.empty:
+                ui.section("Indices sectoriels · séance")
+                s2 = pd.concat([sect.head(6), sect.tail(6)]).drop_duplicates("indice")
+                st.plotly_chart(G.secteurs_barres(s2, h=380), width="stretch", config=G.CFG)
 
     c1, c2 = st.columns([1.5, 1])
     with c1:
