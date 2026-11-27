@@ -88,9 +88,12 @@ div[data-testid="stMetric"] {{ background:{C.CARD}; border:1px solid {C.GRID}; b
 """
 
 
-def page(titre: str, sous_titre: str = "", date_ref=None) -> None:
+def page(titre: str, sous_titre: str = "", date_ref=None, theme: str = "classique") -> None:
+    """En-tête de page. theme : classique, antique (journal), bourse (cotation), trading (écran sombre)."""
     from . import brand
-    st.markdown(CSS, unsafe_allow_html=True)
+    from . import themes
+    themes.activer(theme)
+    st.markdown(CSS + themes.css(themes.actif()), unsafe_allow_html=True)
     logo = brand.logo_data_uri()
     gauche = (f"<img src='{logo}' alt='{C.NOM_ENTREPRISE}'><div class='m20-sep'></div>" if logo else "")
     droite = f"<div class='m20-date'>Dernière séance<b>{date_courte(date_ref)}</b></div>" if date_ref is not None else ""
@@ -98,6 +101,63 @@ def page(titre: str, sous_titre: str = "", date_ref=None) -> None:
                 f"<div class='m20-app'>MASI<span>20</span>TRACKER · {C.NOM_ENTREPRISE}</div>"
                 f"<div class='m20-t'>{titre}</div><p>{sous_titre or C.SOUS_TITRE}</p></div></div>{droite}</div>",
                 unsafe_allow_html=True)
+    if themes.actif() == "bourse":
+        try:
+            ticker(db())
+        except Exception:
+            pass
+
+
+def ticker(d: dict) -> None:
+    """Bandeau défilant : MASI, MASI 20 et les valeurs du MASI 20 à la dernière séance."""
+    from .fmt import nombre, pct
+    act, compo, m20, ind = d.get("actions"), d.get("composition"), d.get("masi20"), d.get("indices")
+    items = []
+
+    def it(nom, cours, var):
+        cls = "s" if var is None or pd.isna(var) or var == 0 else "h" if var > 0 else "b"
+        fl = "▲" if cls == "h" else "▼" if cls == "b" else "■"
+        return (f"<span class='it'><b>{nom}</b><span class='c'>{nombre(cours)}</span>"
+                f"<span class='{cls}'>{fl} {pct(var) if var is not None and not pd.isna(var) else '–'}</span></span>")
+    if ind is not None and not ind.empty:
+        x = ind[(ind["indice"] == "MASI") & (ind["date"] == ind["date"].max())]
+        if len(x):
+            items.append(it("MASI", x["valeur"].iloc[0], x["var_veille"].iloc[0] / 100))
+    if m20 is not None and len(m20) > 1:
+        m = m20.sort_values("date")
+        items.append(it("MASI 20", m["cloture"].iloc[-1], m["cloture"].iloc[-1] / m["cloture"].iloc[-2] - 1))
+    if act is not None and not act.empty:
+        a = act[act["date"] == act["date"].max()]
+        if compo is not None and not compo.empty:
+            actifs = compo[compo["date_fin"].isna() | (compo["date_fin"].astype(str).str.strip() == "")]["isin"]
+            if len(actifs):
+                a = a[a["isin"].isin(actifs)]
+        a = a.sort_values("nom")
+        for _, r in a.iterrows():
+            ref = r.get("cours_ref")
+            v = r["cloture"] / ref - 1 if ref and not pd.isna(ref) and ref > 0 else None
+            items.append(it(str(r["nom"]).title(), r["cloture"], v))
+    if items:
+        st.markdown(f"<div class='m20-ticker'><span class='lbl'>Cours</span><div class='rail'>{''.join(items)}</div></div>",
+                    unsafe_allow_html=True)
+
+
+def tableau(t, height: int | None = None, **kw) -> None:
+    """Tableau : en HTML pour les thèmes antique et trading (polices et couleurs du thème), sinon st.dataframe."""
+    from . import themes
+    kw.pop("width", None)
+    kw.pop("hide_index", None)
+    if themes.actif() in ("antique", "trading"):
+        kw.pop("column_config", None)
+        sty = t if hasattr(t, "to_html") and not isinstance(t, pd.DataFrame) else t.style.hide(axis="index")
+        if isinstance(t, pd.DataFrame):
+            sty = sty.format(na_rep="–")
+        h = f"max-height:{height}px;" if height and height >= 500 else ""
+        st.markdown(f"<div class='m20-tab' style='{h}'>{sty.to_html()}</div>", unsafe_allow_html=True)
+    else:
+        if height:
+            kw["height"] = height
+        st.dataframe(t, width="stretch", hide_index=True, **kw)
 
 
 def section(titre: str) -> None:
@@ -106,7 +166,11 @@ def section(titre: str) -> None:
 
 def chapitre(titre: str, sous_titre: str = "", num: str | None = None) -> None:
     """Grande partie d'une page (« 1 · Le marché »)."""
-    badge = f"<div class='num'>{num}</div>" if num else "<div class='num'>◆</div>"
+    from . import themes
+    if themes.actif() == "antique":
+        badge = f"<div class='num'>{themes.roman(num)}</div>" if num else "<div class='num'>❦</div>"
+    else:
+        badge = f"<div class='num'>{num}</div>" if num else "<div class='num'>◆</div>"
     st.markdown(f"<div class='m20-chap'>{badge}<div><div class='t'>{titre}</div>"
                 f"{f'<div class=s>{sous_titre}</div>' if sous_titre else ''}</div></div>", unsafe_allow_html=True)
 
@@ -191,10 +255,14 @@ def style_table(df: pd.DataFrame, pct_cols=(), signe_cols=(), fmt=None):
         fmt.setdefault(c, lambda v: pct(v))
     sty = df.style.format(fmt, na_rep="–")
 
+    from . import themes
+    pal = themes.GRAPHES.get(themes.actif(), {}).get("map", {})
+    up, down = pal.get(C.UP, C.UP), pal.get(C.DOWN, C.DOWN)
+
     def col(v):
         if v is None or pd.isna(v) or not isinstance(v, (int, float)):
             return ""
-        return f"color: {C.UP}; font-weight:600" if v > 0 else f"color: {C.DOWN}; font-weight:600" if v < 0 else ""
+        return f"color: {up}; font-weight:600" if v > 0 else f"color: {down}; font-weight:600" if v < 0 else ""
     cols = [c for c in list(pct_cols) + list(signe_cols) if c in df.columns]
     if cols:
         sty = sty.map(col, subset=cols)

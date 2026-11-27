@@ -513,3 +513,55 @@ def gt_evolution(e: pd.DataFrame, h=360) -> go.Figure:
     fig.update_xaxes(type="category")
     fig.update_yaxes(ticksuffix=" %", range=[0, 100], title_text="Part du volume")
     return fig
+
+
+# ------------------------------------------------------------------ habillage selon le thème de la page
+def habiller(fig: go.Figure) -> go.Figure:
+    """Recolore une figure selon le thème de la page (antique, trading, bourse). Sans thème : inchangée."""
+    from . import themes
+    p = themes.GRAPHES.get(themes.actif())
+    if not p:
+        return fig
+    m = {k.lower(): v for k, v in p["map"].items()}
+
+    def r(o):
+        if isinstance(o, dict):
+            return {k: r(v) for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            return [r(v) for v in o]
+        if isinstance(o, np.ndarray) and o.dtype.kind in "OUS":
+            return np.array([r(v) for v in o.tolist()], dtype=object)
+        if isinstance(o, str):
+            return m.get(o.lower(), o)
+        return o
+    d = fig.to_dict()
+    d["data"] = r(d.get("data", []))
+    lay = d.get("layout", {})
+    for k in ("shapes", "annotations"):
+        if k in lay:
+            lay[k] = r(lay[k])
+    fig = go.Figure(d)
+    fig.update_layout(paper_bgcolor=p["paper"], plot_bgcolor=p["plot"], font=dict(family=p["font"], color=p["texte"]),
+                      hoverlabel=dict(bgcolor=p["survol"], bordercolor=p["grille"], font=dict(family=p["font"], color=p["texte"])),
+                      legend=dict(font=dict(color=p["texte"])))
+    fig.update_xaxes(gridcolor=p["grille"], linecolor=p["grille"], zerolinecolor=p["grille"], tickfont=dict(color=p["muet"]),
+                     title_font=dict(color=p["muet"]))
+    fig.update_yaxes(gridcolor=p["grille"], linecolor=p["grille"], zerolinecolor=p["grille"], tickfont=dict(color=p["muet"]),
+                     title_font=dict(color=p["muet"]))
+    return fig
+
+
+def _habille(f):
+    import functools
+
+    @functools.wraps(f)
+    def g(*a, **k):
+        res = f(*a, **k)
+        return habiller(res) if isinstance(res, go.Figure) else res
+    return g
+
+
+for _n, _f in list(globals().items()):
+    if callable(_f) and not _n.startswith("_") and getattr(_f, "__module__", "") == __name__ \
+            and _n not in ("habiller",) and getattr(_f, "__annotations__", {}).get("return") in ("go.Figure", go.Figure):
+        globals()[_n] = _habille(_f)

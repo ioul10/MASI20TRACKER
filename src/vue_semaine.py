@@ -40,7 +40,7 @@ def afficher(db: dict) -> None:
         ui.section("MASI, MASI 20 et reste du marché")
         face = pd.DataFrame([[_cell(x) for x in r] for r in B.face_a_face(d)],
                             columns=["", "MASI (tout le marché)", "MASI 20", "Hors MASI 20"])
-        st.dataframe(face, hide_index=True, width="stretch", height=35 * (len(face) + 1) + 3)
+        ui.tableau(face, hide_index=True, width="stretch", height=35 * (len(face) + 1) + 3)
         st.caption("Hors MASI 20 : les autres actions de la cote, variation pondérée par la capitalisation. Volumes : marché central.")
     with c2:
         ui.section("MASI et MASI 20 · base 100")
@@ -65,7 +65,7 @@ def afficher(db: dict) -> None:
         with c2:
             ui.section("1.2 · Les actions de la semaine")
             top, flop = g.head(5), g.tail(5).iloc[::-1]
-            st.dataframe(ui.style_table(pd.DataFrame({"Meilleures": top["nom"].str.title().values, "Var.": top["rendement"].values,
+            ui.tableau(ui.style_table(pd.DataFrame({"Meilleures": top["nom"].str.title().values, "Var.": top["rendement"].values,
                                                       "Moins bonnes": flop["nom"].str.title().values, "Var. ": flop["rendement"].values}),
                                         pct_cols=["Var.", "Var. "]), hide_index=True, width="stretch")
             ui.section("1.3 · Les volumes")
@@ -75,7 +75,7 @@ def afficher(db: dict) -> None:
                         + f". Le MASI 20 en représente **{pct(mv.get('part_masi20'), 0, False)}**.")
             gv = g.sort_values("volume", ascending=False).head(5)
             tv = g["volume"].sum()
-            st.dataframe(ui.style_table(pd.DataFrame({"Actions les plus échangées": gv["nom"].str.title(), "Volume": gv["volume"],
+            ui.tableau(ui.style_table(pd.DataFrame({"Actions les plus échangées": gv["nom"].str.title(), "Volume": gv["volume"],
                                                       "Part du marché": gv["volume"] / tv, "Part GT": gv["volume_gros"] / gv["volume"],
                                                       "Indice": np.where(gv["m20"], "MASI 20", "")}),
                                         fmt={"Volume": lambda v: mad(v), "Part du marché": lambda v: pct(v, 1, False),
@@ -85,7 +85,7 @@ def afficher(db: dict) -> None:
         st.markdown(f"**{len(gt)}** grosse(s) transaction(s) sur la semaine ; elles font **{pct(mv.get('part_gros'), 0, False)}** "
                     "du volume du marché. Détail et méthode : page *Grosses transactions*.")
         if not gt.empty:
-            st.dataframe(pd.DataFrame(B._gt_lignes(gt.head(8)), columns=["Séance", "Valeur", "Prix", "Montant", "Contrats",
+            ui.tableau(pd.DataFrame(B._gt_lignes(gt.head(8)), columns=["Séance", "Valeur", "Prix", "Montant", "Contrats",
                                                                          "Par contrat", "Test"]),
                          hide_index=True, width="stretch")
 
@@ -98,7 +98,7 @@ def afficher(db: dict) -> None:
             ui.section("2.1 · Qui a fait bouger l’indice")
             bt = b.sort_values("contribution_pb", ascending=False)
             t3, f3 = bt.head(3), bt.tail(3).iloc[::-1]
-            st.dataframe(ui.style_table(pd.DataFrame({"Tirent l’indice": t3["nom"].str.title().values, "pb": t3["contribution_pb"].values,
+            ui.tableau(ui.style_table(pd.DataFrame({"Tirent l’indice": t3["nom"].str.title().values, "pb": t3["contribution_pb"].values,
                                                       "Freinent l’indice": f3["nom"].str.title().values, "pb ": f3["contribution_pb"].values}),
                                         signe_cols=["pb", "pb "], fmt={"pb": lambda v: nombre(v, 1, True), "pb ": lambda v: nombre(v, 1, True)}),
                          hide_index=True, width="stretch")
@@ -111,14 +111,14 @@ def afficher(db: dict) -> None:
                         f"**{pct(cc.get('part_mouvement_gt'), 0, False)} du mouvement** du MASI 20 vient de "
                         f"{cc.get('valeurs_gt', 0)} valeur(s) dominée(s) par des grosses transactions.")
             bv = b.sort_values("volume", ascending=False)
-            st.dataframe(ui.style_table(pd.DataFrame({"Valeur": bv["nom"].str.title(), "Var.": bv["rendement"], "Volume": bv["volume"],
+            ui.tableau(ui.style_table(pd.DataFrame({"Valeur": bv["nom"].str.title(), "Var.": bv["rendement"], "Volume": bv["volume"],
                                                       "Vol./poids": bv["volume_sur_poids"], "vs habituel": bv["vs"],
                                                       "Part GT": bv["part_gt"]}),
                                         pct_cols=["Var."], fmt={"Volume": lambda v: mad(v), "Vol./poids": lambda v: nombre(v, 1) + " ×",
                                                                 "vs habituel": lambda v: nombre(v, 1) + " ×", "Part GT": lambda v: pct(v, 0, False)}),
                          hide_index=True, width="stretch", height=38 * 21)
     ui.section("2.3 · La technique")
-    st.dataframe(pd.DataFrame(o["signaux"]).rename(columns={"Famille": "Méthode"}), width="stretch", hide_index=True,
+    ui.tableau(pd.DataFrame(o["signaux"]).rename(columns={"Famille": "Méthode"}), width="stretch", hide_index=True,
                  column_config={"Lecture": st.column_config.TextColumn(width="large")})
     t = o["technique"].tail(90)
     c1, c2 = st.columns(2)
@@ -136,7 +136,7 @@ def afficher(db: dict) -> None:
     if tab is None or tab.empty:
         st.info("Aucun bulletin du marché à terme sur la semaine.")
     else:
-        st.dataframe(ui.style_table(pd.DataFrame({
+        ui.tableau(ui.style_table(pd.DataFrame({
             "Échéance": tab["contrat"], "Clôture": tab["cloture"], "Var. sem.": tab["var_semaine"], "Base": tab["base_pct"],
             "Positions": tab["open_interest"], "Δ positions": tab["delta_oi"],
             "Volume": [mad(v) if v else "Aucun échange" for v in tab["volume"]],
