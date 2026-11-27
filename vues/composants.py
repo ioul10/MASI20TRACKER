@@ -13,11 +13,11 @@ from src.fmt import date_courte, mad, nombre, pct
 db = ui.db()
 act, flux, compo = db["actions"], db["flux"], db["composition"]
 if act.empty:
-    ui.page("Composants")
+    ui.page("Composants", theme="bourse")
     st.info("Aucun bulletin de la cote importé.")
     st.stop()
 dates = sorted(act["date"].unique(), reverse=True)
-ui.page("Composants", "Indices et volumes des valeurs du MASI 20 et de tout le marché", dates[0])
+ui.page("Composants", "Indices et volumes des valeurs du MASI 20 et de tout le marché", dates[0], theme="bourse")
 
 # ------------------------------------------------------------------ choix communs aux deux onglets
 vue = st.segmented_control("Vue", ["Indices", "Volumes"], default="Indices", key="vue_compo",

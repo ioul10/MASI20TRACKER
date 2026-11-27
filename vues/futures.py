@@ -11,11 +11,11 @@ db = ui.db()
 m20 = db["masi20"].sort_values("date")
 f = F.avec_base(F.preparer(db["futures"], db["futures_trades"]), m20)
 if f.empty:
-    ui.page("Marché à terme")
+    ui.page("Marché à terme", theme="bourse")
     st.info("Aucune donnée futures. Importez un bulletin du marché à terme (BCFR_D).")
     st.stop()
 d = f["date"].max()
-ui.page("Marché à terme", "Futures sur indice MASI 20 : cours, base, positions ouvertes et volumes", d)
+ui.page("Marché à terme", "Futures sur indice MASI 20 : cours, base, positions ouvertes et volumes", d, theme="bourse")
 x = f[f["date"] == d].sort_values("mois_echeance")
 
 items = [{"lab": "MASI 20 (spot)", "val": nombre(x["spot"].iloc[0]) if x["spot"].notna().any() else "–", "sub": date_courte(d), "gold": True}]

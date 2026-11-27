@@ -9,13 +9,13 @@ from src.fmt import date_courte, nombre, pct
 db = ui.db()
 m20 = db["masi20"].sort_values("date")
 if m20.empty:
-    ui.page("Indice & technique")
+    ui.page("Indice & technique", theme="trading")
     st.info("Aucune donnée. Importez des bulletins.")
     st.stop()
 tech = T.indicateurs(m20)
 z = tech.iloc[-1]
 ui.page("Indice & technique", "Le MASI 20, ses moyennes mobiles, le RSI, l'ATR et la variation sur 5 séances",
-        tech["date"].iloc[-1])
+        tech["date"].iloc[-1], theme="trading")
 
 
 def entete(titre: str, role: str, choix: list | None = None, key: str | None = None):
@@ -165,7 +165,7 @@ tab = pd.DataFrame({"Date": x["date"].dt.strftime("%d/%m/%Y"), "Clôture": x["cl
                     f"{lib} 5": x[f"{prefixe}5"], f"{lib} 10": x[f"{prefixe}10"], f"{lib} 20": x[f"{prefixe}20"],
                     f"{lib} 40": x[f"{prefixe}40"], "RSI 5": x["rsi5"], "RSI 14": x["rsi14"],
                     "ATR 5": x["atr5"], "ATR 14": x["atr14"], "Var. 5 s.": x["var_5j"], "Régime": x["regime"]})
-st.dataframe(ui.style_table(tab, pct_cols=["Var.", "Var. 5 s."],
+ui.tableau(ui.style_table(tab, pct_cols=["Var.", "Var. 5 s."],
                             fmt={k: (lambda v: nombre(v)) for k in ["Clôture", "Plus haut", "Plus bas", f"{lib} 5",
                                                                      f"{lib} 10", f"{lib} 20", f"{lib} 40"]}
                             | {k: (lambda v: nombre(v, 0)) for k in ["RSI 5", "RSI 14"]}
@@ -177,7 +177,7 @@ if not ind.empty:
     d = ind["date"].max()
     with st.expander(f"Tous les indices de la Bourse · séance du {date_courte(d)}"):
         y = ind[ind["date"] == d]
-        st.dataframe(ui.style_table(pd.DataFrame({"Indice": y["indice"], "Valeur": y["valeur"],
+        ui.tableau(ui.style_table(pd.DataFrame({"Indice": y["indice"], "Valeur": y["valeur"],
                                                   "Var. veille": y["var_veille"] / 100, "Depuis le 31/12": y["var_ytd"] / 100}),
                                     pct_cols=["Var. veille", "Depuis le 31/12"], fmt={"Valeur": lambda v: nombre(v)}),
                      width="stretch", hide_index=True, height=420)

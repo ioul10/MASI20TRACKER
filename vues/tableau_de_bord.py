@@ -12,11 +12,11 @@ from src.fmt import date_courte, mad, nombre, pct
 
 db = ui.db()
 if db["masi20"].empty:
-    ui.page("Tableau de bord")
+    ui.page("Tableau de bord", theme="antique")
     st.info("La base est vide. Commencez par importer des bulletins (Données → Import des bulletins).")
     st.stop()
 o = S.resume(db)
-ui.page("Tableau de bord", "La dernière séance en un coup d'œil, et le bilan de la semaine", o["date"])
+ui.page("Tableau de bord", "La dernière séance en un coup d'œil, et le bilan de la semaine", o["date"], theme="antique")
 
 onglet_seance, onglet_semaine = st.tabs(["Dernière séance", "Bilan de la semaine (Word)"])
 
@@ -90,7 +90,7 @@ with onglet_seance:
         with c1:
             ui.section("Où va l'argent · 5 plus gros volumes")
             v = b.sort_values("volume", ascending=False).head(5)
-            st.dataframe(ui.style_table(pd.DataFrame({
+            ui.tableau(ui.style_table(pd.DataFrame({
                 "Valeur": v["nom"].str.title(), "Var.": v["rendement"], "Volume": v["volume"],
                 "Part des 20": v["part_volume"], "Grosses trans.": v["volume_gros"] / v["volume"].where(v["volume"] > 0)}),
                 pct_cols=["Var."], fmt={"Volume": lambda x: mad(x), "Part des 20": lambda x: pct(x, 0, False),
@@ -102,7 +102,7 @@ with onglet_seance:
             if g is None or g.empty:
                 st.caption("Aucune grosse transaction repérée sur cette séance.")
             else:
-                st.dataframe(ui.style_table(pd.DataFrame({
+                ui.tableau(ui.style_table(pd.DataFrame({
                     "Valeur": g["nom"].str.title(), "Prix": g["cours"], "Montant": g["volume"], "Contrats": g["nb"],
                     "× habituel": g["multiple"]}).head(8),
                     fmt={"Prix": lambda x: nombre(x), "Montant": lambda x: mad(x), "Contrats": lambda x: nombre(x, 0),
