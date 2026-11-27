@@ -44,6 +44,7 @@ pages = {
         st.Page("vues/futures.py", title="Marché à terme", icon=":material/timeline:"),
     ],
     "Rapports": [
+        st.Page("vues/bilan_hebdo.py", title="Bilan hebdo", icon=":material/summarize:"),
         st.Page("vues/actualites.py", title="Actualités", icon=":material/newspaper:"),
     ],
     "Données": [
@@ -54,4 +55,10 @@ pages = {
 # Logo de l'entreprise dans le menu (après le code d'accès : il n'apparaît pas sur l'écran de connexion)
 _logo = brand.logo_path()
 st.logo(str(_logo) if _logo else "assets/logo.svg", size="large")
-st.navigation(pages).run()
+nav = st.navigation(pages)
+try:
+    from src import ui
+    ui.etat_donnees(ui.db())
+except Exception:
+    pass
+nav.run()
