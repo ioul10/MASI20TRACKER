@@ -19,7 +19,7 @@ else:
     ui.note("Sauvegarde GitHub non configurée : les imports restent sur ce serveur et seront perdus au prochain redémarrage "
             "de Streamlit Cloud. Ajoutez GITHUB_TOKEN et GITHUB_REPO dans les secrets (voir le README).")
 
-onglet_bulletins, onglet_hb = st.tabs(["Bulletins du jour", "Compléter les hauts et les bas du MASI 20"])
+onglet_bulletins, onglet_hb = st.tabs(["Bulletins du jour", "Historiques Investing : MASI 20 et MASI"])
 
 # Cet onglet est rempli en premier : l'onglet des bulletins peut s'arrêter (st.stop) quand aucun fichier n'est déposé.
 with onglet_hb:
@@ -93,6 +93,31 @@ with onglet_hb:
                 n = importer.enregistrer_hauts_bas(ok)
                 ui.vider_cache()
                 st.success(f"{n} séance(s) enregistrée(s).")
+        except Exception as e:
+            st.error(f"Lecture impossible : {e}")
+
+    ui.section("3 · Historique du MASI (indice large) depuis Investing")
+    st.caption("Le bulletin ne donne le MASI que pour les séances importées. Pour un historique plus long (base 100 MASI / "
+               "MASI 20, bilan hebdo), déposez l'export « Historical Data » du MASI d'Investing.com (mêmes colonnes que pour "
+               "le MASI 20). Seules les séances absentes de la base sont ajoutées : la valeur du bulletin reste la référence.")
+    fic_m = st.file_uploader("Fichier de l'historique du MASI", type=["xlsx", "xls", "csv"], key="fic_masi")
+    if fic_m is not None:
+        try:
+            lu_m = importer.lire_hauts_bas(fic_m, fic_m.name)
+            rows_m, res_m = importer.preparer_masi(lu_m, ui.db()["indices"])
+            c = st.columns(4)
+            c[0].metric("Lignes lues", res_m["lues"])
+            c[1].metric("Séances ajoutées", res_m["nouvelles"],
+                        help=f"du {date_courte(res_m['debut'])} au {date_courte(res_m['fin'])}" if res_m["nouvelles"] else None)
+            c[2].metric("Déjà dans la base", res_m["deja"], help="séances des bulletins, non modifiées")
+            c[3].metric("Rejetées", res_m["incoherentes"], help="clôture hors de l'intervalle plus bas – plus haut")
+            if res_m["deja"] and res_m["ecart_max"] > 0.5:
+                st.warning(f"Sur les séances communes, la clôture du fichier diffère du bulletin de {nombre(res_m['ecart_max'], 2)} pt "
+                           "au maximum : vérifiez qu'il s'agit bien du MASI (et non du MASI 20 ou d'un autre indice).")
+            if res_m["nouvelles"] and st.button(f"Ajouter les {res_m['nouvelles']} séance(s) du MASI", type="primary", key="ok_masi"):
+                n = importer.enregistrer_masi(rows_m)
+                ui.vider_cache()
+                st.success(f"{n} séance(s) du MASI ajoutée(s).")
         except Exception as e:
             st.error(f"Lecture impossible : {e}")
 

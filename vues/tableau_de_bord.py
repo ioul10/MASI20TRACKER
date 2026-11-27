@@ -4,6 +4,7 @@ import streamlit as st
 from src import charts as G
 from src import futures as F
 from src import grosses as GT
+from src import bilan as B
 from src import marche as M
 from src import seance as S
 from src import ui, vue_semaine
@@ -17,15 +18,46 @@ if db["masi20"].empty:
 o = S.resume(db)
 ui.page("Tableau de bord", "La dernière séance en un coup d'œil, et le bilan de la semaine", o["date"])
 
-onglet_seance, onglet_semaine = st.tabs(["Dernière séance", "Semaine · bilan Word"])
+onglet_seance, onglet_semaine = st.tabs(["Dernière séance", "Bilan de la semaine (Word)"])
 
 with onglet_seance:
-    # ---------------------------------------------------------------- résumé écrit
-    st.markdown(f"<div style='background:#fff;border:1px solid #E3E7EE;border-left:4px solid #C8A24A;border-radius:10px;padding:12px 16px;font-size:1.02rem;line-height:1.6'>{o['phrase']}</div>",
-                unsafe_allow_html=True)
+    # ---------------------------------------------------------------- l'essentiel
+    ui.chapitre("L’essentiel de la séance", f"Séance du {date_courte(o['date'])}")
+    ui.encadre(o["phrase"])
 
-    # ---------------------------------------------------------------- spot
-    ui.section("MASI 20")
+    # ---------------------------------------------------------------- MASI · tout le marché
+    if "masi" in o:
+        dm = o["masi"]["date"]
+        jour_m = M.vision_masi(db, dm, dm)
+        sem_m = M.vision_masi(db, dm - pd.Timedelta(days=dm.weekday()), dm)
+        ui.chapitre("Le marché (MASI)", f"Toute la cote · séance du {date_courte(dm)}", "1")
+        ui.kpis([
+            {"lab": "MASI", "val": nombre(jour_m.get("valeur")), "sub": f"{pct(jour_m.get('var_jour'))} sur la séance",
+             "sens": jour_m.get("var_jour"), "gold": True},
+            {"lab": "Semaine en cours", "val": pct(sem_m.get("var")), "sens": sem_m.get("var"),
+             "sub": f"MASI 20 : {pct(sem_m.get('var_masi20_publie'))}"},
+            {"lab": "Depuis le 31/12", "val": pct(jour_m.get("var_ytd")), "sens": jour_m.get("var_ytd")},
+            {"lab": "Hausses / baisses", "val": f"{jour_m.get('hausses', 0)} / {jour_m.get('baisses', 0)}",
+             "sub": f"sur {jour_m.get('actions', 0)} actions cotées"},
+            {"lab": "Volume du marché", "val": mad(jour_m.get("volume")),
+             "sub": (f"{nombre(jour_m['volume_vs'], 1)} × l'habituel · " if pd.notna(jour_m.get("volume_vs")) else "")
+                    + f"MASI 20 : {pct(jour_m.get('part_masi20'), 0, False)}"},
+        ])
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            b100 = B.base100(db)
+            if not b100.empty:
+                ui.section("MASI et MASI 20 · base 100")
+                st.plotly_chart(G.base100_masi(b100, h=380), width="stretch", config=G.CFG)
+        with c2:
+            sect = jour_m.get("secteurs", pd.DataFrame())
+            if sect is not None and not sect.empty:
+                ui.section("Indices sectoriels · séance")
+                s2 = pd.concat([sect.head(6), sect.tail(6)]).drop_duplicates("indice")
+                st.plotly_chart(G.secteurs_barres(s2, h=380), width="stretch", config=G.CFG)
+
+    # ---------------------------------------------------------------- MASI 20
+    ui.chapitre("Le MASI 20", f"Séance du {date_courte(o['date'])}", "2")
     items = [{"lab": f"MASI 20 · {date_courte(o['date'])}", "val": nombre(o["masi20"]), "sub": f"{pct(o['var'])} sur la séance",
               "sens": o["var"], "gold": True},
              {"lab": "Semaine en cours", "val": pct(o["var_semaine"]), "sub": "depuis la clôture de la semaine précédente",
@@ -41,38 +73,6 @@ with onglet_seance:
     if "cote_date" in o and o["cote_date"] != o["date"]:
         ui.note(f"Dernier bulletin de la cote importé : {date_courte(o['cote_date'])}. Les composants et les volumes portent "
                 f"sur cette séance ; l'indice va jusqu'au {date_courte(o['date'])}.")
-
-    # ---------------------------------------------------------------- MASI · tout le marché
-    if "masi" in o:
-        dm = o["masi"]["date"]
-        jour_m = M.vision_masi(db, dm, dm)
-        sem_m = M.vision_masi(db, dm - pd.Timedelta(days=dm.weekday()), dm)
-        ui.section(f"MASI · tout le marché · {date_courte(dm)}")
-        ui.kpis([
-            {"lab": "MASI", "val": nombre(jour_m.get("valeur")), "sub": f"{pct(jour_m.get('var_jour'))} sur la séance",
-             "sens": jour_m.get("var_jour"), "gold": True},
-            {"lab": "Semaine en cours", "val": pct(sem_m.get("var")), "sens": sem_m.get("var"),
-             "sub": f"MASI 20 : {pct(sem_m.get('var_masi20_publie'))}"},
-            {"lab": "Depuis le 31/12", "val": pct(jour_m.get("var_ytd")), "sens": jour_m.get("var_ytd")},
-            {"lab": "Hausses / baisses", "val": f"{jour_m.get('hausses', 0)} / {jour_m.get('baisses', 0)}",
-             "sub": f"sur {jour_m.get('actions', 0)} actions cotées"},
-            {"lab": "Volume du marché", "val": mad(jour_m.get("volume")),
-             "sub": (f"{nombre(jour_m['volume_vs'], 1)} × l'habituel · " if pd.notna(jour_m.get("volume_vs")) else "")
-                    + f"MASI 20 : {pct(jour_m.get('part_masi20'), 0, False)}"},
-        ])
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            b100 = M.base100(db)
-            if not b100.empty:
-                ui.section("MASI et MASI 20 · base 100")
-                st.plotly_chart(G.base100_masi(b100, h=380), width="stretch", config=G.CFG)
-        with c2:
-            sect = jour_m.get("secteurs", pd.DataFrame())
-            if sect is not None and not sect.empty:
-                ui.section("Indices sectoriels · séance")
-                s2 = pd.concat([sect.head(6), sect.tail(6)]).drop_duplicates("indice")
-                st.plotly_chart(G.secteurs_barres(s2, h=380), width="stretch", config=G.CFG)
-
     c1, c2 = st.columns([1.5, 1])
     with c1:
         ui.section("MASI 20 · 3 derniers mois")
@@ -108,11 +108,21 @@ with onglet_seance:
                     fmt={"Prix": lambda x: nombre(x), "Montant": lambda x: mad(x), "Contrats": lambda x: nombre(x, 0),
                          "× habituel": lambda x: f"{nombre(x, 1)} ×"}),
                     width="stretch", hide_index=True)
+    # ---------------------------------------------------------------- technique
+    z = o["z"]
+    ui.section("Technique")
+    au = sum(z["cloture"] > z[f"mm{k}"] for k in (5, 10, 20, 40) if pd.notna(z[f"mm{k}"]))
+    ui.kpis([{"lab": "Moyennes mobiles", "val": f"{au} / 4", "sub": "moyennes sous l'indice (5, 10, 20, 40)"},
+             {"lab": "RSI 14", "val": nombre(z["rsi14"], 0),
+              "sub": "surachat" if z["rsi14"] >= 70 else "survente" if z["rsi14"] <= 30 else "zone neutre"},
+             {"lab": "ATR 14", "val": f"{nombre(z['atr14'], 1)} pts", "sub": f"{pct(z['atr14_pct'], 2, False)} de l'indice"},
+             {"lab": "Variation 5 séances", "val": pct(z["var_5j"]), "sub": f"régime {z['regime'] or '–'}", "sens": z["var_5j"]}])
+    st.caption("Détails et explications : page Indice & technique.")
 
     # ---------------------------------------------------------------- futures
     if "futures" in o:
         x = o["futures"]
-        ui.section(f"Marché à terme · séance du {date_courte(o['futures_date'])}")
+        ui.chapitre("Le marché à terme", f"Futures sur le MASI 20 · séance du {date_courte(o['futures_date'])}", "3")
         items = []
         for _, r in x.iterrows():
             items.append({"lab": F.libelle(r["ticker"]), "val": f"{nombre(r['cloture'])} pts",
@@ -126,16 +136,6 @@ with onglet_seance:
         if o["futures_date"] != o["date"]:
             st.caption(f"Le dernier bulletin du marché à terme importé est celui du {date_courte(o['futures_date'])}.")
 
-    # ---------------------------------------------------------------- technique
-    z = o["z"]
-    ui.section("Technique du MASI 20")
-    au = sum(z["cloture"] > z[f"mm{k}"] for k in (5, 10, 20, 40) if pd.notna(z[f"mm{k}"]))
-    ui.kpis([{"lab": "Moyennes mobiles", "val": f"{au} / 4", "sub": "moyennes sous l'indice (5, 10, 20, 40)"},
-             {"lab": "RSI 14", "val": nombre(z["rsi14"], 0),
-              "sub": "surachat" if z["rsi14"] >= 70 else "survente" if z["rsi14"] <= 30 else "zone neutre"},
-             {"lab": "ATR 14", "val": f"{nombre(z['atr14'], 1)} pts", "sub": f"{pct(z['atr14_pct'], 2, False)} de l'indice"},
-             {"lab": "Variation 5 séances", "val": pct(z["var_5j"]), "sub": f"régime {z['regime'] or '–'}", "sens": z["var_5j"]}])
-    st.caption("Détails et explications : page Indice & technique.")
 
 with onglet_semaine:
     vue_semaine.afficher(db)

@@ -24,7 +24,7 @@ if gt is None or gt.empty or len(gt) < 10:
             "la règle, lancez une fois <b>Composition & paramètres → Recalculer les grosses transactions</b>.")
 
 # ------------------------------------------------------------------ 1. la définition
-ui.section("1 · La définition")
+ui.chapitre("La définition", "Ce qu’est une grosse transaction, et comment la plateforme la repère", "1")
 c1, c2 = st.columns([1.25, 1])
 with c1:
     st.markdown(f"""**Une grosse transaction** est un échange anormalement gros, passé par un ou quelques grands acteurs,
@@ -73,7 +73,7 @@ with st.expander("Les cas particuliers"):
 Détails et chiffres : fiche méthode « Les grosses transactions ».""")
 
 # ------------------------------------------------------------------ 2. le résultat
-ui.section("2 · Le résultat")
+ui.chapitre("Le résultat", "Part des grosses transactions et mouvement du MASI 20", "2")
 c = st.columns([1.2, 1, 2])
 d = pd.Timestamp(c[0].selectbox("Séance", dates, format_func=lambda x: date_courte(pd.Timestamp(x))))
 fen = c[1].segmented_control("Période", ["Séance", "Semaine"], default="Séance") or "Séance"
@@ -104,7 +104,7 @@ padding:12px 16px;line-height:1.6;margin:6px 0 10px'>{M.phrase_concentration(x, 
 
 a, bt = st.columns([5, 1.3], vertical_alignment="bottom")
 with a:
-    ui.section(f"3 · Qui a fait bouger le MASI 20, et avec quel volume · {lib}")
+    ui.chapitre("Qui a fait bouger le MASI 20, et avec quel volume", lib, "3")
 with bt.popover("La méthode", icon=":material/help:", width="stretch"):
     st.markdown(f"""**Pour chaque valeur du MASI 20** sur la période :
 - sa **contribution** au mouvement du MASI 20 (poids × variation, en points de base) ;
@@ -136,14 +136,14 @@ else:
                      width="stretch", hide_index=True, height=38 * 21)
 
 # ------------------------------------------------------------------ 4. évolution
-ui.section("4 · Évolution, séance par séance")
+ui.chapitre("Évolution, séance par séance", "Part des grosses transactions sur le MASI 20 et sur tout le marché", "4")
 e = M.gt_par_seance(db)
 if not e.empty:
     st.plotly_chart(G.gt_evolution(e), width="stretch", config=G.CFG)
     st.caption("Barres : part des grosses transactions dans le volume des 20 valeurs du MASI 20. Ligne : sur tout le marché.")
 
 # ------------------------------------------------------------------ 5. la liste
-ui.section(f"5 · Les grosses transactions · {lib}")
+ui.chapitre("La liste des grosses transactions", lib, "5")
 univ = st.segmented_control("Valeurs", ["MASI 20", "Tout le marché"], default="MASI 20", key="gt_univ") or "MASI 20"
 lst = g20 if univ == "MASI 20" else g_per
 if lst is None or lst.empty:
