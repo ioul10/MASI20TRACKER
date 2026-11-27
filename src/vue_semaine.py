@@ -1,14 +1,20 @@
-"""Vision hebdomadaire (spot + marché à terme) et export du bilan Word / HTML.
-Affichée dans le tableau de bord (onglet « Semaine ») et dans la page Bilan hebdo."""
+"""Bilan de la semaine (MASI et MASI 20) à l'écran, et export Word.
+Affiché dans le tableau de bord (onglet « Semaine ») et dans la page Bilan hebdo.
+Même plan que le Word : l'essentiel · 1 le marché (MASI) · 2 le MASI 20 · 3 le marché à terme · 4 avis DRF."""
+import numpy as np
 import pandas as pd
 import streamlit as st
 
+from . import bilan as B
 from . import charts as G
 from . import hebdo as H
 from . import marche as M
-from . import report, report_word
 from . import ui
 from .fmt import date_courte, mad, nombre, pct
+
+
+def _cell(v):
+    return v[0] if isinstance(v, tuple) else v
 
 
 def afficher(db: dict) -> None:
@@ -16,153 +22,143 @@ def afficher(db: dict) -> None:
     if not sem:
         st.info("Aucune donnée.")
         return
-    c = st.columns([1.2, 2])
-    fin = c[0].selectbox("Semaine", sem, format_func=lambda d: f"Semaine {d.isocalendar().week} · du {date_courte(d - pd.Timedelta(days=4))} au {date_courte(d)}")
-    o = H.bilan(db, fin)
-    if not o:
+    c = st.columns([1.4, 2])
+    fin = c[0].selectbox("Semaine", sem, key="semaine_bilan",
+                         format_func=lambda d: f"Semaine {d.isocalendar().week} · du {date_courte(d - pd.Timedelta(days=4))} au {date_courte(d)}")
+    with st.spinner("Calcul du bilan de la semaine…"):
+        d = B.donnees(db, fin)
+    if not d:
         st.warning("Aucune séance sur cette semaine.")
         return
+    o, mv = d["o"], d["mv"]
 
-    # --- En-tête
-    fu = o.get("futures") or {}
-    tab = fu.get("tableau", pd.DataFrame())
-    items = [{"lab": "MASI 20", "val": f"{nombre(o['masi20'])} pts", "sub": f"{pct(o['masi20_var'])} sur la semaine",
-              "sens": o["masi20_var"], "gold": True}]
-    for _, r in tab.iterrows():
-        items.append({"lab": r["contrat"], "val": f"{nombre(r['cloture'])} pts", "sub": f"{pct(r['var_semaine'])} · base {pct(r['base_pct'], 1)}",
-                      "sens": r["var_semaine"]})
-    ui.kpis(items)
-    st.caption(f"Variations calculées depuis la clôture du {date_courte(o['masi20_ref_date'])} "
-               f"(dernière séance de la semaine précédente) · {len(o['seances'])} séances : "
-               + ", ".join(d.strftime("%d/%m") for d in o["seances"]))
+    # ------------------------------------------------------------------ l'essentiel
+    ui.chapitre("La semaine en un coup d’œil", f"{d['seances']} séance(s) · du {date_courte(d['debut'])} au {date_courte(d['fin'])}")
+    ui.encadre("".join(f"<li>{s}</li>" for s in d["essentiel"]), liste=True)
+    c1, c2 = st.columns([1.05, 1])
+    with c1:
+        ui.section("MASI, MASI 20 et reste du marché")
+        face = pd.DataFrame([[_cell(x) for x in r] for r in B.face_a_face(d)],
+                            columns=["", "MASI (tout le marché)", "MASI 20", "Hors MASI 20"])
+        st.dataframe(face, hide_index=True, width="stretch", height=35 * (len(face) + 1) + 3)
+        st.caption("Hors MASI 20 : les autres actions de la cote, variation pondérée par la capitalisation. Volumes : marché central.")
+    with c2:
+        ui.section("MASI et MASI 20 · base 100")
+        if len(d["base100"]) > 1:
+            st.plotly_chart(G.base100_masi(d["base100"], h=330), width="stretch", config=G.CFG)
+            if "ecart" in d:
+                st.caption(f"Écart MASI 20 − MASI sur la semaine : {pct(d['ecart'])}. Historique du MASI : importez-le depuis "
+                           "Investing (Import des bulletins) pour une courbe plus longue.")
+        else:
+            st.info("Pas assez de séances communes MASI / MASI 20.")
 
-    ui.section("Vision générale")
-    g = [{"lab": "État de marché", "val": o["etat_marche"], "sens": o["masi20_var"]}]
-    if "masi_var" in o:
-        g.append({"lab": "MASI", "val": pct(o["masi_var"]), "sub": "indice large", "sens": o["masi_var"]})
-    if fu:
-        g += [{"lab": "Positions ouvertes", "val": nombre(fu["oi_total"], 0), "sub": f"{nombre(fu['delta_oi_total'], 0, True)} sur la semaine",
-               "sens": fu["delta_oi_total"]},
-              {"lab": "Volume futures", "val": mad(fu["volume_semaine"]), "sub": f"{fu['seances_sans_transaction']} séance(s) sans transaction"},
-              {"lab": "Depuis le lancement", "val": f"{fu['seances_depuis_lancement']} séances", "sub": mad(fu["volume_depuis_lancement"])}]
-    ui.kpis(g)
-
-    mv = o.get("masi_vision") or {}
-    if mv.get("valeur") is not None:
-        ui.section("MASI · tout le marché")
-        ui.kpis([
-            {"lab": "MASI", "val": f"{nombre(mv['valeur'])} pts", "sub": f"{pct(mv.get('var'))} sur la semaine",
-             "sens": mv.get("var"), "gold": True},
-            {"lab": "Depuis le 31/12", "val": pct(mv.get("var_ytd")), "sens": mv.get("var_ytd")},
-            {"lab": "Hausses / baisses", "val": f"{mv.get('hausses', 0)} / {mv.get('baisses', 0)}",
-             "sub": f"sur {mv.get('actions', 0)} actions cotées"},
-            {"lab": "Volume du marché", "val": mad(mv.get("volume")),
-             "sub": (f"{nombre(mv['volume_vs'], 1)} × l'habituel par séance" if pd.notna(mv.get("volume_vs")) else "marché central")},
-            {"lab": "Part du MASI 20", "val": pct(mv.get("part_masi20"), 0, False), "sub": "du volume du marché"},
-        ])
-        c1, c2 = st.columns(2)
+    # ------------------------------------------------------------------ 1. le marché
+    ui.chapitre("Le marché (MASI)", "Secteurs, actions, volumes et grosses transactions de toute la cote", "1")
+    sect = mv.get("secteurs")
+    if "actions" in d:
+        g = d["actions"].sort_values("rendement", ascending=False)
+        c1, c2 = st.columns([1.1, 1])
         with c1:
-            b100 = M.base100(db)
-            b100 = b100[b100["date"] <= fin] if not b100.empty else b100
-            if len(b100) > 1:
-                st.markdown("**MASI et MASI 20 · base 100**")
-                st.plotly_chart(G.base100_masi(b100, h=400), width="stretch", config=G.CFG)
-        with c2:
-            sect = mv.get("secteurs")
+            ui.section("1.1 · Les secteurs")
             if sect is not None and not sect.empty:
-                st.markdown("**Indices sectoriels · variation de la semaine**")
-                st.plotly_chart(G.secteurs_barres(sect, h=max(400, 22 * len(sect) + 60)), width="stretch", config=G.CFG)
-
-    if fu:
-        ui.section("Marché à terme")
-        c1, c2 = st.columns([1.15, 1])
-        with c1:
-            t = pd.DataFrame({"Contrat": tab["contrat"], "Clôture": tab["cloture"], "Var. sem.": tab["var_semaine"],
-                              "OI": tab["open_interest"], "Δ OI": tab["delta_oi"], "Volume": tab["volume"],
-                              "Base": tab["base_pct"], "Lecture prix × OI": tab["signal"]})
-            st.dataframe(ui.style_table(t, pct_cols=["Var. sem.", "Base"], signe_cols=["Δ OI"],
-                                        fmt={"Clôture": lambda v: nombre(v), "OI": lambda v: nombre(v, 0),
-                                             "Δ OI": lambda v: nombre(v, 0, True), "Volume": lambda v: mad(v, 2)}),
-                         width="stretch", hide_index=True)
+                st.plotly_chart(G.secteurs_barres(sect, h=max(420, 22 * len(sect) + 60)), width="stretch", config=G.CFG)
         with c2:
-            st.plotly_chart(G.futures_semaine(o["futures_jours"], h=300), width="stretch", config=G.CFG)
+            ui.section("1.2 · Les actions de la semaine")
+            top, flop = g.head(5), g.tail(5).iloc[::-1]
+            st.dataframe(ui.style_table(pd.DataFrame({"Meilleures": top["nom"].str.title().values, "Var.": top["rendement"].values,
+                                                      "Moins bonnes": flop["nom"].str.title().values, "Var. ": flop["rendement"].values}),
+                                        pct_cols=["Var.", "Var. "]), hide_index=True, width="stretch")
+            ui.section("1.3 · Les volumes")
+            vs = d["vs"]["marche"]
+            st.markdown(f"Le marché a échangé **{mad(mv.get('volume'))}**"
+                        + (f", soit **{nombre(vs, 1)} ×** son volume habituel par séance" if not pd.isna(vs) else "")
+                        + f". Le MASI 20 en représente **{pct(mv.get('part_masi20'), 0, False)}**.")
+            gv = g.sort_values("volume", ascending=False).head(5)
+            tv = g["volume"].sum()
+            st.dataframe(ui.style_table(pd.DataFrame({"Actions les plus échangées": gv["nom"].str.title(), "Volume": gv["volume"],
+                                                      "Part du marché": gv["volume"] / tv, "Part GT": gv["volume_gros"] / gv["volume"],
+                                                      "Indice": np.where(gv["m20"], "MASI 20", "")}),
+                                        fmt={"Volume": lambda v: mad(v), "Part du marché": lambda v: pct(v, 1, False),
+                                             "Part GT": lambda v: pct(v, 0, False)}), hide_index=True, width="stretch")
+        ui.section("1.4 · Les grosses transactions")
+        gt = d["gt"]
+        st.markdown(f"**{len(gt)}** grosse(s) transaction(s) sur la semaine ; elles font **{pct(mv.get('part_gros'), 0, False)}** "
+                    "du volume du marché. Détail et méthode : page *Grosses transactions*.")
+        if not gt.empty:
+            st.dataframe(pd.DataFrame(B._gt_lignes(gt.head(8)), columns=["Séance", "Valeur", "Prix", "Montant", "Contrats",
+                                                                         "Par contrat", "Test"]),
+                         hide_index=True, width="stretch")
 
-    if o.get("composants_dispo"):
-        b = o["composants"]
-        if o.get("bulletins_manquants"):
-            ui.note("Bulletins de la cote manquants pour cette semaine : " + ", ".join(o["bulletins_manquants"]) +
-                    ". Les contributions et volumes ne portent que sur les séances disponibles "
-                    f"({o['seances_composants']} sur {len(o['seances'])}).")
-        ui.section("Composants : chiffres clés")
-        ui.kpis([{"lab": "Hausses / baisses", "val": f"{o['hausses']} / {o['baisses']}", "sub": "sur 20 valeurs"},
-                 {"lab": "Volume des 20 valeurs", "val": mad(o["volume_masi20"]), "sub": f"{pct(o['part_marche'], 0, False)} du marché central"},
-                 {"lab": "Grosses transactions", "val": pct(o["part_gros"], 0, False), "sub": "du volume de l'indice"},
-                 {"lab": "Contrôle des poids", "val": pct(o["controle_recon"]), "sub": f"reconstitué ({nombre(o['controle_pb'], 0, True)} pb)"},
-                 {"lab": "Qualité du mouvement", "val": pct(o["qualite_hausse"], 0, False) if pd.notna(o["qualite_hausse"]) else "–",
-                  "sub": "de la contribution positive avec volume en hausse"}])
-        ui.section("Indice et volume, séance par séance")
-        st.plotly_chart(G.semaine_indice_volume(o), width="stretch", config=G.CFG)
-        c1, c2 = st.columns(2)
+    # ------------------------------------------------------------------ 2. le MASI 20
+    ui.chapitre("Le MASI 20", f"Clôture {nombre(o['masi20'])} pts · {pct(o['masi20_var'])} sur la semaine", "2")
+    if "b" in d:
+        b = d["b"]
+        c1, c2 = st.columns([1, 1.05])
         with c1:
-            ui.section("Qui a fait bouger l'indice")
-            st.plotly_chart(G.contributions(b), width="stretch", config=G.CFG)
+            ui.section("2.1 · Qui a fait bouger l’indice")
+            bt = b.sort_values("contribution_pb", ascending=False)
+            t3, f3 = bt.head(3), bt.tail(3).iloc[::-1]
+            st.dataframe(ui.style_table(pd.DataFrame({"Tirent l’indice": t3["nom"].str.title().values, "pb": t3["contribution_pb"].values,
+                                                      "Freinent l’indice": f3["nom"].str.title().values, "pb ": f3["contribution_pb"].values}),
+                                        signe_cols=["pb", "pb "], fmt={"pb": lambda v: nombre(v, 1, True), "pb ": lambda v: nombre(v, 1, True)}),
+                         hide_index=True, width="stretch")
+            x, _ = M.concentration(b)
+            st.plotly_chart(G.gt_mouvement(x, h=560), width="stretch", config=G.CFG)
         with c2:
-            ui.section("Où va l'argent")
-            st.plotly_chart(G.volume_poids(b, h=26 * len(b) + 60), width="stretch", config=G.CFG)
-        ui.section("Détail des 20 valeurs")
-        t = pd.DataFrame({"Valeur": b["nom"], "Poids": b["poids"], "Var. sem.": b["rendement"], "Contrib. (pb)": b["contribution_pb"],
-                          "Volume": b["volume"], "Vol./poids": b["volume_sur_poids"], "Tend. vol.": b["tendance_volume"],
-                          "Signal": b["qualite"]})
-        st.dataframe(ui.style_table(t, pct_cols=["Var. sem."], signe_cols=["Contrib. (pb)"],
-                                    fmt={"Poids": lambda v: pct(v, 1, False), "Contrib. (pb)": lambda v: nombre(v, 1, True),
-                                         "Volume": lambda v: mad(v), "Vol./poids": lambda v: nombre(v, 1) + "×",
-                                         "Tend. vol.": lambda v: nombre(v, 2) + "×"}),
-                     width="stretch", hide_index=True, height=740)
-        c1, c2 = st.columns(2)
-        with c1:
-            ui.section("Par secteur")
-            s = o["secteurs"]
-            st.dataframe(ui.style_table(pd.DataFrame({"Secteur": s["secteur"], "Poids": s["poids"], "Contribution (pb)": s["contribution_pb"],
-                                                      "Part du volume": s.get("part_volume")}), signe_cols=["Contribution (pb)"],
-                                        fmt={"Poids": lambda v: pct(v, 1, False), "Contribution (pb)": lambda v: nombre(v, 1, True),
-                                             "Part du volume": lambda v: pct(v, 1, False)}), width="stretch", hide_index=True)
-        with c2:
-            ui.section("À surveiller la semaine prochaine")
-            for x in o["a_surveiller"] or ["Rien de particulier."]:
-                st.markdown(f"- {x}")
-    else:
-        ui.note("Aucun bulletin de la cote pour cette semaine : la partie composants et volumes n'est pas disponible.")
-
-    ui.section("Analyse technique du MASI 20")
+            ui.section("2.2 · Les volumes des 20 valeurs")
+            cc = d["conc"]
+            st.markdown(f"Les grosses transactions font **{pct(cc.get('part_gros'), 0, False)}** du volume des 20 valeurs ; "
+                        f"**{pct(cc.get('part_mouvement_gt'), 0, False)} du mouvement** du MASI 20 vient de "
+                        f"{cc.get('valeurs_gt', 0)} valeur(s) dominée(s) par des grosses transactions.")
+            bv = b.sort_values("volume", ascending=False)
+            st.dataframe(ui.style_table(pd.DataFrame({"Valeur": bv["nom"].str.title(), "Var.": bv["rendement"], "Volume": bv["volume"],
+                                                      "Vol./poids": bv["volume_sur_poids"], "vs habituel": bv["vs"],
+                                                      "Part GT": bv["part_gt"]}),
+                                        pct_cols=["Var."], fmt={"Volume": lambda v: mad(v), "Vol./poids": lambda v: nombre(v, 1) + " ×",
+                                                                "vs habituel": lambda v: nombre(v, 1) + " ×", "Part GT": lambda v: pct(v, 0, False)}),
+                         hide_index=True, width="stretch", height=38 * 21)
+    ui.section("2.3 · La technique")
     st.dataframe(pd.DataFrame(o["signaux"]).rename(columns={"Famille": "Méthode"}), width="stretch", hide_index=True,
                  column_config={"Lecture": st.column_config.TextColumn(width="large")})
     t = o["technique"].tail(90)
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("**Indice et moyennes mobiles 5 · 10 · 20 · 40**")
-        st.plotly_chart(G.indice_moyennes(t, h=320), width="stretch", config=G.CFG)
-        st.markdown("**ATR 14**")
-        st.plotly_chart(G.atr_barres(t, 14, h=300), width="stretch", config=G.CFG)
+        st.plotly_chart(G.indice_moyennes(t, h=300), width="stretch", config=G.CFG)
+        st.plotly_chart(G.atr_barres(t, 14, h=280), width="stretch", config=G.CFG)
     with c2:
-        st.markdown("**RSI 14**")
-        st.plotly_chart(G.rsi_barres(t, 14, h=320), width="stretch", config=G.CFG)
-        st.markdown("**Variation sur 5 séances**")
-        st.plotly_chart(G.var5_barres(t, h=300), width="stretch", config=G.CFG)
-    st.caption("Méthodes et lecture détaillées : page Indice & technique.")
+        st.plotly_chart(G.rsi_barres(t, 14, h=300), width="stretch", config=G.CFG)
+        st.plotly_chart(G.var5_barres(t, h=280), width="stretch", config=G.CFG)
 
-    ui.section("Avis DRF")
-    cle = f"avis_{fin:%Y%m%d}"
-    avis = st.text_area("Proposition générée à partir des chiffres : relisez et corrigez avant l'export.", value=o["avis"], height=150, key=cle)
-    auteur = st.text_input("Signature (facultatif)", value="DRF")
+    # ------------------------------------------------------------------ 3. le marché à terme
+    ui.chapitre("Le marché à terme", "Futures sur l’indice MASI 20", "3")
+    fu = o.get("futures") or {}
+    tab = fu.get("tableau", pd.DataFrame())
+    if tab is None or tab.empty:
+        st.info("Aucun bulletin du marché à terme sur la semaine.")
+    else:
+        st.dataframe(ui.style_table(pd.DataFrame({
+            "Échéance": tab["contrat"], "Clôture": tab["cloture"], "Var. sem.": tab["var_semaine"], "Base": tab["base_pct"],
+            "Positions": tab["open_interest"], "Δ positions": tab["delta_oi"],
+            "Volume": [mad(v) if v else "Aucun échange" for v in tab["volume"]],
+            "Lecture": [s if s != "Indéterminé" else "Pas de signal" for s in tab["signal"]]}),
+            pct_cols=["Var. sem."], signe_cols=["Δ positions"],
+            fmt={"Clôture": lambda v: nombre(v), "Base": lambda v: pct(v), "Positions": lambda v: nombre(v, 0),
+                 "Δ positions": lambda v: nombre(v, 0, True)}), hide_index=True, width="stretch")
+        if not fu.get("volume_semaine"):
+            st.caption("Aucune transaction sur la semaine : positions ouvertes inchangées.")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.download_button("Télécharger le bilan Word (.docx)", report_word.docx_bilan(o, avis, auteur),
-                           file_name=f"MASI20TRACKER_bilan_{fin:%Y%m%d}.docx", type="primary", width="stretch",
+    # ------------------------------------------------------------------ 4. avis DRF et export
+    ui.chapitre("Avis DRF", "Modifiable avant l’export : le texte ci-dessous part tel quel dans le Word", "4")
+    avis = st.text_area("Avis DRF", value=o.get("avis", ""), height=170, key=f"avis_{fin:%Y%m%d}")
+    points = st.text_area("Points à surveiller la semaine prochaine (un par ligne)", value="", height=90,
+                          key=f"points_{fin:%Y%m%d}", placeholder="Ex. : tenue des mines après la chute de Managem")
+    auteur = st.text_input("Signature (facultatif)", value="", key="auteur_bilan")
+    if st.button("Préparer le bilan Word", type="primary", icon=":material/description:"):
+        with st.spinner("Construction du document Word…"):
+            st.session_state["bilan_docx"] = (fin, B.docx(d, avis, points, auteur))
+    prep = st.session_state.get("bilan_docx")
+    if prep and prep[0] == fin:
+        st.download_button("Télécharger le bilan Word", data=prep[1], icon=":material/download:",
+                           file_name=f"Bilan_hebdo_MASI_MASI20_{fin:%Y%m%d}.docx",
                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-        st.caption("Modifiable dans Word : textes, tableaux et graphiques (en images).")
-    with c2:
-        st.download_button("Télécharger le bilan HTML (à imprimer en PDF)", report.html_bilan(o, avis, auteur).encode("utf-8"),
-                           file_name=f"MASI20TRACKER_bilan_{fin:%Y%m%d}.html", mime="text/html", width="stretch")
-        st.caption("Graphiques interactifs. Pour le PDF : ouvrir dans le navigateur, puis Ctrl+P (A4 paysage).")
-
+        st.caption("Le document s’ouvre dans Word ; Fichier › Enregistrer sous › PDF pour une version figée.")

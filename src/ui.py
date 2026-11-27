@@ -57,6 +57,33 @@ html, body, [class*="css"], .stMarkdown, .stDataFrame {{ font-family: 'Inter', s
   display:flex; justify-content:space-between; gap: 12px; flex-wrap: wrap; }}
 [data-testid="stPlotlyChart"], [data-testid="stDataFrame"] {{ background:#fff; border:1px solid {C.GRID}; border-radius:12px; padding: 6px; }}
 div[data-testid="stMetric"] {{ background:{C.CARD}; border:1px solid {C.GRID}; border-radius:12px; padding:10px 14px; }}
+/* Finitions : cartes plus lisibles, survol, onglets, boutons */
+.m20-kpi {{ transition: box-shadow .15s ease, transform .15s ease; }}
+.m20-kpi:hover {{ box-shadow: 0 4px 14px rgba(16,24,40,.08); transform: translateY(-1px); }}
+.m20-kpi .val {{ letter-spacing: -.2px; }}
+[data-testid="stTabs"] button[role="tab"] {{ font-weight: 600; color: {C.MUTED}; }}
+[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {{ color: {C.NAVY}; }}
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] {{ background-color: {C.GOLD}; height: 3px; }}
+[data-testid="stExpander"] details {{ border-radius: 12px; border: 1px solid {C.GRID}; background: #fff; }}
+[data-testid="stBaseButton-primary"] {{ background: {C.NAVY}; border-color: {C.NAVY}; }}
+[data-testid="stBaseButton-primary"]:hover {{ background: {C.NAVY}E6; border-color: {C.GOLD}; }}
+[data-testid="stDownloadButton"] button {{ border-color: {C.GOLD}; font-weight: 600; }}
+/* Chapitres (grandes parties d'une page) */
+.m20-chap {{ display:flex; align-items:center; gap: 14px; margin: 38px 0 12px; padding: 14px 18px; background:#fff;
+  border: 1px solid {C.GRID}; border-radius: 14px; box-shadow: 0 1px 2px rgba(16,24,40,.04); }}
+.m20-chap .num {{ min-width: 40px; height: 40px; border-radius: 10px; background: {C.NAVY}; color: #fff; font-weight: 700;
+  display:flex; align-items:center; justify-content:center; font-size: 1.1rem; box-shadow: inset 0 -3px 0 {C.GOLD}; }}
+.m20-chap .t {{ font-size: 1.22rem; font-weight: 700; color: {C.NAVY}; line-height: 1.2; }}
+.m20-chap .s {{ font-size: .84rem; color: {C.MUTED}; margin-top: 2px; }}
+/* Encadré de synthèse */
+.m20-box {{ background: #FBF8EF; border: 1px solid #EADFC0; border-left: 5px solid {C.GOLD}; border-radius: 0 12px 12px 0;
+  padding: 12px 18px; margin: 6px 0 12px; color: {C.INK}; font-size: .95rem; line-height: 1.55; }}
+.m20-box ul {{ margin: 0; padding-left: 18px; }} .m20-box li {{ margin: 3px 0; }}
+/* État des données dans le menu */
+.m20-etat {{ margin: 18px 4px 4px; padding: 12px 12px; border-radius: 12px; background: {C.BG}; border: 1px solid {C.GRID};
+  font-size: .78rem; color: {C.MUTED}; line-height: 1.6; }}
+.m20-etat b {{ color: {C.INK}; font-weight: 600; }}
+.m20-etat .ti {{ font-size: .68rem; text-transform: uppercase; letter-spacing: .8px; font-weight: 700; color: {C.MUTED}; margin-bottom: 4px; }}
 </style>
 """
 
@@ -75,6 +102,29 @@ def page(titre: str, sous_titre: str = "", date_ref=None) -> None:
 
 def section(titre: str) -> None:
     st.markdown(f"<div class='m20-section'>{titre}</div>", unsafe_allow_html=True)
+
+
+def chapitre(titre: str, sous_titre: str = "", num: str | None = None) -> None:
+    """Grande partie d'une page (« 1 · Le marché »)."""
+    badge = f"<div class='num'>{num}</div>" if num else "<div class='num'>◆</div>"
+    st.markdown(f"<div class='m20-chap'>{badge}<div><div class='t'>{titre}</div>"
+                f"{f'<div class=s>{sous_titre}</div>' if sous_titre else ''}</div></div>", unsafe_allow_html=True)
+
+
+def encadre(html: str, liste: bool = False) -> None:
+    """Encadré de synthèse (fond crème, filet or)."""
+    st.markdown(f"<div class='m20-box'>{'<ul>' + html + '</ul>' if liste else html}</div>", unsafe_allow_html=True)
+
+
+def etat_donnees(db: dict) -> None:
+    """Petit état des données, dans le menu latéral."""
+    def der(df, col="date"):
+        return date_courte(df[col].max()) if df is not None and not df.empty else "–"
+    act = db.get("actions")
+    n = act["date"].nunique() if act is not None and not act.empty else 0
+    st.sidebar.markdown(f"<div class='m20-etat'><div class='ti'>Données</div>"
+                        f"Cote : <b>{der(act)}</b> · {n} séances<br>Marché à terme : <b>{der(db.get('futures'))}</b><br>"
+                        f"MASI 20 : <b>{der(db.get('masi20'))}</b></div>", unsafe_allow_html=True)
 
 
 def note(texte: str) -> None:

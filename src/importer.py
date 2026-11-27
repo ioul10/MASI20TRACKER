@@ -308,3 +308,41 @@ def recalculer_grosses(progression=None) -> dict:
     gros = pd.concat(toutes, ignore_index=True)
     store.save("grosses", gros, "Recalcul des grosses transactions")
     return {"bulletins": len(maj), "niveaux": len(gros), "montant": float(gros["volume"].sum())}
+
+
+# ------------------------------------------------ historique du MASI (indice large) depuis Investing
+def preparer_masi(lu: pd.DataFrame, indices: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Prépare les séances du MASI absentes des bulletins, à partir d'un historique (Investing ou autre).
+    Les séances déjà présentes (bulletins) ne sont pas modifiées : le bulletin reste la référence.
+    Renvoie (lignes à ajouter à la table indices, résumé du contrôle)."""
+    x = lu.dropna(subset=["cloture_fichier"]).copy()
+    x["date"] = pd.to_datetime(x["date"]).dt.normalize()
+    m = indices[indices["indice"] == "MASI"][["date", "valeur"]].copy() if not indices.empty else pd.DataFrame(columns=["date", "valeur"])
+    m["date"] = pd.to_datetime(m["date"]).dt.normalize()
+    commun = x.merge(m, on="date")
+    ecart = (commun["cloture_fichier"] - commun["valeur"]).abs()
+    tol = 0.01
+    incoh = x[(x["plus_haut"].notna() & (x["cloture_fichier"] > x["plus_haut"] + tol))
+              | (x["plus_bas"].notna() & (x["cloture_fichier"] < x["plus_bas"] - tol))]
+    x = x[~x.index.isin(incoh.index)]
+    nouv = x[~x["date"].isin(set(m["date"]))]
+    # série complète (bulletins + fichier) pour recalculer variation veille et depuis le 31/12
+    serie = pd.concat([m.rename(columns={"valeur": "v"}), nouv[["date", "cloture_fichier"]].rename(columns={"cloture_fichier": "v"})])
+    serie = serie.drop_duplicates("date").sort_values("date").set_index("date")["v"].astype(float)
+    veille = serie.pct_change() * 100
+    fin_an = serie.groupby(serie.index.year).last()
+    ytd = pd.Series([(v / fin_an.get(d.year - 1) - 1) * 100 if (d.year - 1) in fin_an.index else np.nan
+                     for d, v in serie.items()], index=serie.index)
+    rows = pd.DataFrame({"date": nouv["date"].values, "indice": "MASI", "valeur": nouv["cloture_fichier"].values,
+                         "var_veille": nouv["date"].map(veille).values, "var_ytd": nouv["date"].map(ytd).values,
+                         "plus_haut": nouv["plus_haut"].values, "plus_bas": nouv["plus_bas"].values, "source": "fichier"})
+    res = {"lues": len(lu), "nouvelles": len(rows), "deja": int(len(commun)), "incoherentes": int(len(incoh)),
+           "ecart_max": float(ecart.max()) if len(ecart) else np.nan,
+           "debut": rows["date"].min() if len(rows) else None, "fin": rows["date"].max() if len(rows) else None}
+    return rows, res
+
+
+def enregistrer_masi(rows: pd.DataFrame) -> int:
+    if rows.empty:
+        return 0
+    return store.upsert("indices", rows, f"Historique du MASI ({len(rows)} séances)")
